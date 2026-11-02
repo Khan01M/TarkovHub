@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { useGql, Img } from '../ui';
-import { rub } from '../api';
+import { useData, Img } from '../ui';
+import { rub, loadItems } from '../api';
 import { desktop } from '../position';
 
 const SECTIONS = [
@@ -12,11 +12,10 @@ const SECTIONS = [
   { href: '#/guides', title: 'Гайды', text: 'Механики, заработок, лечение', icon: '☰' },
 ];
 
-const Q = `{ items(lang: ru, type: barter{MODE}) { id name shortName iconLink avg24hPrice } }`;
 
 export default function Home() {
-  const { data } = useGql('home', Q);
-  const top = useMemo(() => (data?.items || []).filter((i: any) => i.avg24hPrice).sort((a: any, b: any) => b.avg24hPrice - a.avg24hPrice).slice(0, 6), [data]);
+  const { data } = useData(loadItems);
+  const top = useMemo(() => (data?.items || []).filter((i: any) => i.avg24hPrice && i.types.includes('barter')).sort((a: any, b: any) => b.avg24hPrice - a.avg24hPrice).slice(0, 6), [data]);
   return (
     <section>
       <div className="hero">

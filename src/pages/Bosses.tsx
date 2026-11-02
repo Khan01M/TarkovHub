@@ -1,19 +1,7 @@
 import { useMemo, useState } from 'react';
-import { useGql, State, Search, norm } from '../ui';
-import { num } from '../api';
+import { useData, State, Search, norm } from '../ui';
+import { num, loadMaps } from '../api';
 
-const Q = `{
-  bosses(lang: ru{MODE}) { name normalizedName imagePortraitLink health { bodyPart max } }
-  maps(lang: ru{MODE}) { name normalizedName bosses {
-    boss { name normalizedName } spawnChance
-    spawnLocations { name chance }
-    escorts { boss { name } amount { count chance } }
-  } }
-}`;
-const FB = `{
-  bosses(lang: ru{MODE}) { name normalizedName imagePortraitLink health { bodyPart max } }
-  maps(lang: ru{MODE}) { name normalizedName bosses { boss { name normalizedName } spawnChance spawnLocations { name chance } } }
-}`;
 
 // Короткие подсказки по главным боссам (ключ — часть normalizedName)
 const NOTES: Record<string, string> = {
@@ -32,29 +20,39 @@ const NOTES: Record<string, string> = {
   partisan: 'Партизан: ходит по Лесу, Таможне, Берегу, Маяку. Ставит растяжки и бьёт из засады — смотрите под ноги на тропах.',
   cultist: 'Культисты: ночью (Лес, Берег, Таможня, Ночной завод). Отравленные ножи, бесшумно подходят. Держите при себе антидот и обезболивающее.',
 };
-const noteFor = (n: string) => Object.entries(NOTES).find(([k]) => n?.includes(k))?.[1];
+const NOTE_KEYS: Record<string, string> = { birdeye: 'birdeye', 'big-pipe': 'big-pipe', 'cultist-priest': 'cultist' };
+const noteFor = (n: string) => NOTES[NOTE_KEYS[n] || n];
+// Порядок: сначала основные боссы (с подсказками), потом остальные по шансу
+const MAIN = Object.keys(NOTES);
 
 const PART: Record<string, string> = {
-  head: 'Голова', thorax: 'Грудь', stomach: 'Живот', leftArm: 'Л. рука', rightArm: 'П. рука', leftLeg: 'Л. нога', rightLeg: 'П. нога',
+  Head: 'Голова', Chest: 'Грудь', Stomach: 'Живот', LeftArm: 'Л. рука', RightArm: 'П. рука', LeftLeg: 'Л. нога', RightLeg: 'П. нога',
 };
 
+const rank = (b: any) => { const i = MAIN.indexOf(NOTE_KEYS[b.normalizedName] || b.normalizedName); return i < 0 ? 99 : i; };
+
 export default function Bosses() {
-  const { data, error, loading } = useGql('bosses', Q, FB);
+  const { data, error, loading } = useData(loadMaps);
   const [q, setQ] = useState('');
 
   const bosses = useMemo(() => {
     if (!data) return [];
     const spawns: Record<string, any[]> = {};
     for (const m of data.maps || []) for (const b of m.bosses || []) {
-      const key = b.boss?.normalizedName; if (!key) continue;
-      (spawns[key] ||= []).push({ map: m.name, chance: b.spawnChance, locs: b.spawnLocations || [], escorts: b.escorts || [] });
+      const key = b.normalizedName; if (!key) continue;
+      const list = (spawns[key] ||= []);
+      // на одной карте босс может быть описан несколько раз — оставляем самый вероятный вариант
+      const prev = list.find((x) => x.map === m.name);
+      if (prev && prev.chance >= b.spawnChance) continue;
+      if (prev) list.splice(list.indexOf(prev), 1);
+      list.push({ map: m.name, chance: b.spawnChance, locs: b.spawnLocations || [], escorts: b.escorts || [] });
     }
     const nq = norm(q);
     return (data.bosses || [])
       .map((b: any) => ({ ...b, spawns: (spawns[b.normalizedName] || []).sort((x, y) => y.chance - x.chance), note: noteFor(b.normalizedName) }))
       .filter((b: any) => b.spawns.length > 0 || b.note)
       .filter((b: any) => !nq || norm(b.name).includes(nq) || b.spawns.some((s: any) => norm(s.map).includes(nq)))
-      .sort((a: any, b: any) => (b.note ? 1 : 0) - (a.note ? 1 : 0) || (b.spawns[0]?.chance || 0) - (a.spawns[0]?.chance || 0));
+      .sort((a: any, b: any) => rank(a) - rank(b) || (b.spawns[0]?.chance || 0) - (a.spawns[0]?.chance || 0));
   }, [data, q]);
 
   return (
@@ -84,14 +82,14 @@ export default function Bosses() {
                     <div className="muted small">Точки: {s.locs.map((l: any) => `${l.name}${l.chance ? ` (${Math.round(l.chance * 100)}%)` : ''}`).join(', ')}</div>
                   )}
                   {s.escorts.length > 0 && (
-                    <div className="muted small">Охрана: {s.escorts.map((e: any) => `${e.boss?.name} ×${Math.max(...(e.amount || [{ count: 0 }]).map((a: any) => a.count))}`).join(', ')}</div>
+                    <div className="muted small">Охрана: {s.escorts.map((e: any) => `${e.name}${e.count ? ` ×${e.count}` : ''}`).join(', ')}</div>
                   )}
                 </div>
               ))}
               {b.health?.length > 0 && (
                 <details>
                   <summary>Здоровье по частям тела</summary>
-                  {b.health.map((h: any) => <div key={h.bodyPart} className="kv small"><span>{PART[h.bodyPart] || h.bodyPart}</span><b>{h.max}</b></div>)}
+                  {b.health.map((h: any) => <div key={h.id} className="kv small"><span>{PART[h.id] || h.id}</span><b>{h.max}</b></div>)}
                 </details>
               )}
             </div>

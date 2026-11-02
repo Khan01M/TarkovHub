@@ -1,16 +1,7 @@
 import { useMemo, useState } from 'react';
-import { useGql, State, Search, norm, safeUrl } from '../ui';
-import { num } from '../api';
+import { useData, State, Search, norm, safeUrl } from '../ui';
+import { num, loadTasks } from '../api';
 
-const Q = `{ tasks(lang: ru{MODE}) {
-  id name minPlayerLevel kappaRequired experience wikiLink
-  trader { name } map { name }
-  objectives { description optional }
-  taskRequirements { task { name } }
-} }`;
-const FB = `{ tasks(lang: ru{MODE}) {
-  id name minPlayerLevel wikiLink trader { name } map { name } objectives { description }
-} }`;
 
 function useDone() {
   const [done, setDone] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem('done') || '{}'); } catch { return {}; } });
@@ -19,7 +10,7 @@ function useDone() {
 }
 
 export default function Quests() {
-  const { data, error, loading } = useGql('tasks', Q, FB);
+  const { data, error, loading } = useData(loadTasks);
   const [q, setQ] = useState('');
   const [trader, setTrader] = useState('');
   const [mapF, setMapF] = useState('');
@@ -29,12 +20,12 @@ export default function Quests() {
   const [done, toggle] = useDone();
 
   const tasks = data?.tasks || [];
-  const traders = useMemo(() => Array.from(new Set(tasks.map((t: any) => t.trader?.name).filter(Boolean))) as string[], [tasks]);
-  const maps = useMemo(() => Array.from(new Set(tasks.map((t: any) => t.map?.name).filter(Boolean))).sort() as string[], [tasks]);
+  const traders = useMemo(() => Array.from(new Set(tasks.map((t: any) => t.trader).filter(Boolean))) as string[], [tasks]);
+  const maps = useMemo(() => Array.from(new Set(tasks.map((t: any) => t.map).filter(Boolean))).sort() as string[], [tasks]);
   const list = useMemo(() => {
     const nq = norm(q);
     return tasks
-      .filter((t: any) => (!trader || t.trader?.name === trader) && (!mapF || t.map?.name === mapF) && (!kappa || t.kappaRequired) && (!hideDone || !done[t.id]))
+      .filter((t: any) => (!trader || t.trader === trader) && (!mapF || t.map === mapF) && (!kappa || t.kappaRequired) && (!hideDone || !done[t.id]))
       .filter((t: any) => !nq || norm(t.name).includes(nq) || (t.objectives || []).some((o: any) => norm(o.description).includes(nq)))
       .sort((a: any, b: any) => (a.minPlayerLevel || 0) - (b.minPlayerLevel || 0));
   }, [tasks, q, trader, mapF, kappa, hideDone, done]);
@@ -64,13 +55,13 @@ export default function Quests() {
               <input type="checkbox" checked={!!done[t.id]} onChange={() => toggle(t.id)} onClick={(e) => e.stopPropagation()} aria-label="Выполнено" />
               <div className="grow">
                 <div className="title">{t.name} {t.kappaRequired && <span className="badge">Каппа</span>}</div>
-                <div className="muted small">{t.trader?.name} · {t.map?.name || 'любая карта'} · ур. {t.minPlayerLevel || 1}{t.experience ? ` · ${num(t.experience)} опыта` : ''}</div>
+                <div className="muted small">{t.trader} · {t.map || 'любая карта'} · ур. {t.minPlayerLevel || 1}{t.experience ? ` · ${num(t.experience)} опыта` : ''}</div>
               </div>
             </div>
             {open === t.id && (
               <div className="details">
                 <ol>{(t.objectives || []).map((o: any, i: number) => <li key={i}>{o.description}{o.optional ? ' (необязательно)' : ''}</li>)}</ol>
-                {t.taskRequirements?.length > 0 && <div className="muted small">Сначала выполнить: {t.taskRequirements.map((r: any) => r.task?.name).filter(Boolean).join(', ')}</div>}
+                {t.requires?.length > 0 && <div className="muted small">Сначала выполнить: {t.requires.join(', ')}</div>}
                 {safeUrl(t.wikiLink) && <a className="link small" href={safeUrl(t.wikiLink)} target="_blank" rel="noreferrer">Подробный гайд в Wiki ↗</a>}
               </div>
             )}

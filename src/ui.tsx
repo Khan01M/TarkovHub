@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
-import { gql } from './api';
 
-export function useGql<T = any>(name: string, query: string, fallback?: string, deps: unknown[] = []) {
+export function useData<T = any>(loader: () => Promise<T>, deps: unknown[] = []) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let alive = true;
     setLoading(true); setError(null);
-    gql<T>(name, query, fallback)
+    loader()
       .then((d) => alive && setData(d))
       .catch((e) => alive && setError(String(e?.message || e)))
       .finally(() => alive && setLoading(false));
@@ -23,7 +22,7 @@ export function State({ loading, error }: { loading: boolean; error: string | nu
   if (error) return (
     <div className="state error">
       Не удалось получить данные: {error}
-      <div className="muted">Проверьте интернет. Данные берутся с открытого API tarkov.dev.</div>
+      <div className="muted">Проверьте интернет. Данные берутся с открытого API tarkov.dev (json.tarkov.dev).</div>
     </div>
   );
   return null;

@@ -1,17 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useGql, State, safeUrl } from '../ui';
+import { useData, State, safeUrl } from '../ui';
+import { loadMaps } from '../api';
 import { desktop, parseScreenshotName, Pos } from '../position';
 
-const Q = `{ maps(lang: ru{MODE}) {
-  id name normalizedName nameId description raidDuration players enemies wiki
-  bosses { boss { name } spawnChance }
-  extracts { name faction position { x y z } }
-  spawns { position { x y z } sides categories }
-} }`;
-const FB = `{ maps(lang: ru{MODE}) {
-  id name normalizedName description raidDuration players enemies wiki
-  bosses { boss { name } spawnChance }
-} }`;
 
 const FACTION: Record<string, { label: string; color: string }> = {
   pmc: { label: 'ЧВК', color: '#5fbf6a' },
@@ -23,7 +14,7 @@ type View = { rot: number; flip: boolean };
 const loadView = (id: string): View => { try { return JSON.parse(localStorage.getItem('view:' + id) || '') } catch { return { rot: 0, flip: false }; } };
 
 export default function Maps() {
-  const { data, error, loading } = useGql('maps', Q, FB);
+  const { data, error, loading } = useData(loadMaps);
   const maps = useMemo(() => (data?.maps || []).filter((m: any) => m.name).sort((a: any, b: any) => a.name.localeCompare(b.name, 'ru')), [data]);
   const [sel, setSel] = useState<string>(() => localStorage.getItem('map') || '');
   const map = maps.find((m: any) => m.normalizedName === sel) || maps[0];
@@ -138,7 +129,7 @@ export default function Maps() {
 
 function dedupe(bosses: any[]) {
   const m = new Map<string, number>();
-  for (const b of bosses) { const n = b.boss?.name; if (n) m.set(n, Math.max(m.get(n) || 0, b.spawnChance || 0)); }
+  for (const b of bosses) { const n = b.name; if (n) m.set(n, Math.max(m.get(n) || 0, b.spawnChance || 0)); }
   return [...m].map(([name, chance]) => ({ name, chance })).sort((a, b) => b.chance - a.chance);
 }
 

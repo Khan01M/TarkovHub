@@ -1,24 +1,7 @@
 import { useMemo, useState } from 'react';
-import { useGql, State, Search, norm, Img, safeUrl } from '../ui';
-import { rub, num } from '../api';
+import { useData, State, Search, norm, Img, safeUrl } from '../ui';
+import { rub, num, loadItems } from '../api';
 
-const QW = `{ items(type: gun, lang: ru{MODE}) {
-  id name shortName iconLink wikiLink avg24hPrice
-  buyFor { priceRUB vendor { name } }
-  properties { ... on ItemPropertiesWeapon {
-    caliber fireRate ergonomics recoilVertical recoilHorizontal effectiveDistance
-    defaultAmmo { name }
-  } }
-} }`;
-const QW_FB = `{ items(type: gun, lang: ru{MODE}) {
-  id name shortName iconLink wikiLink avg24hPrice
-  properties { ... on ItemPropertiesWeapon { caliber fireRate ergonomics recoilVertical recoilHorizontal } }
-} }`;
-
-const QA = `{ ammo(lang: ru{MODE}) {
-  caliber damage penetrationPower armorDamage initialSpeed fragmentationChance tracer
-  item { id name shortName iconLink avg24hPrice }
-} }`;
 
 // "Caliber556x45NATO" → "5.56x45 NATO"
 export function caliberName(c?: string) {
@@ -52,23 +35,23 @@ export default function Weapons() {
 }
 
 function Guns() {
-  const { data, error, loading } = useGql('guns', QW, QW_FB);
+  const { data, error, loading } = useData(loadItems);
   const [q, setQ] = useState('');
   const [cal, setCal] = useState('');
   const [sort, setSort] = useState('recoil');
   const guns = useMemo(() => {
     const nq = norm(q);
-    const list = (data?.items || []).filter((g: any) => g.properties?.caliber &&
-      (!cal || g.properties.caliber === cal) && (!nq || norm(g.name).includes(nq) || norm(g.shortName).includes(nq)));
+    const list = (data?.items || []).filter((g: any) => g.gun?.caliber &&
+      (!cal || g.gun.caliber === cal) && (!nq || norm(g.name).includes(nq) || norm(g.shortName).includes(nq)));
     const by: Record<string, (a: any, b: any) => number> = {
-      recoil: (a, b) => (a.properties.recoilVertical || 0) - (b.properties.recoilVertical || 0),
-      ergo: (a, b) => (b.properties.ergonomics || 0) - (a.properties.ergonomics || 0),
-      rate: (a, b) => (b.properties.fireRate || 0) - (a.properties.fireRate || 0),
+      recoil: (a, b) => (a.gun.recoilVertical || 0) - (b.gun.recoilVertical || 0),
+      ergo: (a, b) => (b.gun.ergonomics || 0) - (a.gun.ergonomics || 0),
+      rate: (a, b) => (b.gun.fireRate || 0) - (a.gun.fireRate || 0),
       price: (a, b) => (a.avg24hPrice || 9e9) - (b.avg24hPrice || 9e9),
     };
     return list.sort(by[sort]);
   }, [data, q, cal, sort]);
-  const calibers = useMemo(() => Array.from(new Set((data?.items || []).map((g: any) => g.properties?.caliber).filter(Boolean))).sort() as string[], [data]);
+  const calibers = useMemo(() => Array.from(new Set((data?.items || []).map((g: any) => g.gun?.caliber).filter(Boolean))).sort() as string[], [data]);
 
   return (
     <>
@@ -88,8 +71,8 @@ function Guns() {
       <State loading={loading} error={error} />
       <div className="cards">
         {guns.map((g: any) => {
-          const p = g.properties;
-          const trader = (g.buyFor || []).filter((b: any) => !/flea|барахол/i.test(b.vendor?.name || '')).sort((a: any, b: any) => a.priceRUB - b.priceRUB)[0];
+          const p = g.gun;
+          const trader = [...(g.buyFor || [])].filter((b: any) => !/flea|барахол/i.test(b.vendor?.name || '')).sort((a: any, b: any) => a.priceRUB - b.priceRUB)[0];
           return (
             <div key={g.id} className="card gun">
               <div className="row-main">
@@ -107,7 +90,7 @@ function Guns() {
               </div>
               <div className="kv"><span>Барахолка</span><b>{rub(g.avg24hPrice)}</b></div>
               {trader && <div className="kv"><span>{trader.vendor.name}</span><b>{rub(trader.priceRUB)}</b></div>}
-              {p.defaultAmmo?.name && <div className="muted small">Патрон по умолчанию: {p.defaultAmmo.name}</div>}
+              {p.defaultAmmo && <div className="muted small">Патрон по умолчанию: {p.defaultAmmo}</div>}
               {safeUrl(g.wikiLink) && <a className="link small" href={safeUrl(g.wikiLink)} target="_blank" rel="noreferrer">Wiki ↗</a>}
             </div>
           );
@@ -121,17 +104,25 @@ function Stat({ label, value }: { label: string; value: string }) {
   return <div className="stat"><b>{value}</b><span>{label}</span></div>;
 }
 
+// Цена патрона: средняя на барахолке, а если там его нет — самая дешёвая у торговцев
+const ammoPrice = (it: any) => {
+  if (it.avg24hPrice) return it.avg24hPrice;
+  const p = (it.buyFor || []).map((o: any) => o.priceRUB).filter((x: number) => x > 0);
+  return p.length ? Math.min(...p) : null;
+};
+
 function Ammo() {
-  const { data, error, loading } = useGql('ammo', QA);
+  const { data, error, loading } = useData(loadItems);
   const [cal, setCal] = useState('');
   const [q, setQ] = useState('');
-  const calibers = useMemo(() => Array.from(new Set((data?.ammo || []).map((a: any) => a.caliber).filter(Boolean))).sort() as string[], [data]);
+  const ammo = useMemo(() => (data?.items || []).filter((i: any) => i.ammo).map((i: any) => ({ ...i.ammo, item: i })), [data]);
+  const calibers = useMemo(() => Array.from(new Set(ammo.map((a: any) => a.caliber).filter(Boolean))).sort() as string[], [ammo]);
   const list = useMemo(() => {
     const nq = norm(q);
-    return (data?.ammo || [])
-      .filter((a: any) => a.item && (!cal || a.caliber === cal) && (!nq || norm(a.item.name).includes(nq)))
+    return ammo
+      .filter((a: any) => (!cal || a.caliber === cal) && (!nq || norm(a.item.name).includes(nq)))
       .sort((a: any, b: any) => b.penetrationPower - a.penetrationPower);
-  }, [data, cal, q]);
+  }, [ammo, cal, q]);
 
   return (
     <>
@@ -153,11 +144,11 @@ function Ammo() {
                 <tr key={a.item.id}>
                   <td><div className="cell-item"><Img src={a.item.iconLink} alt="" size={28} />{a.item.shortName || a.item.name}</div></td>
                   <td className="muted">{caliberName(a.caliber)}</td>
-                  <td>{a.damage}</td>
+                  <td>{a.projectileCount > 1 ? `${a.damage}×${a.projectileCount}` : a.damage}</td>
                   <td><span className={`pen pen${penClass(a.penetrationPower)}`}>{a.penetrationPower}</span></td>
                   <td>{a.armorDamage}%</td>
                   <td>{a.initialSpeed} м/с</td>
-                  <td>{rub(a.item.avg24hPrice)}</td>
+                  <td>{rub(ammoPrice(a.item))}</td>
                 </tr>
               ))}
             </tbody>

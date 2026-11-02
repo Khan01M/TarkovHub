@@ -1,17 +1,7 @@
 import { useMemo, useState } from 'react';
-import { useGql, State, Search, norm, Img, safeUrl } from '../ui';
-import { rub, num } from '../api';
+import { useData, State, Search, norm, Img, safeUrl } from '../ui';
+import { rub, num, loadItems } from '../api';
 
-const Q = `{ items(lang: ru{MODE}) {
-  id name shortName iconLink wikiLink types width height basePrice
-  avg24hPrice low24hPrice lastLowPrice changeLast48hPercent
-  sellFor { priceRUB vendor { name } }
-  buyFor { priceRUB vendor { name } }
-} }`;
-const FALLBACK = `{ items(lang: ru{MODE}) {
-  id name shortName iconLink wikiLink types width height basePrice avg24hPrice lastLowPrice
-  sellFor { priceRUB vendor { name } }
-} }`;
 
 const CATS: [string, string][] = [
   ['', 'Все'], ['barter', 'Бартер'], ['keys', 'Ключи'], ['ammo', 'Патроны'], ['gun', 'Оружие'],
@@ -25,10 +15,10 @@ const SORTS: [string, string][] = [
 ];
 
 const FLEA = 'Барахолка';
-const isFlea = (v?: string) => !!v && (v === 'Flea Market' || norm(v).includes('барахолк'));
+const isFlea = (v?: string) => !!v && (v === 'Flea Market' || v === 'FleaMarket' || norm(v).includes('барахолк'));
 
 export default function Market() {
-  const { data, error, loading } = useGql('items', Q, FALLBACK);
+  const { data, error, loading } = useData(loadItems);
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('');
   const [sort, setSort] = useState('flea');
@@ -37,7 +27,7 @@ export default function Market() {
 
   const rows = useMemo(() => {
     const items = (data?.items || []).map((it: any) => {
-      const traders = (it.sellFor || []).filter((s: any) => !isFlea(s.vendor?.name));
+      const traders = [...(it.sellFor || [])].filter((s: any) => !isFlea(s.vendor?.name));
       const best = traders.sort((a: any, b: any) => b.priceRUB - a.priceRUB)[0];
       const flea = it.avg24hPrice || it.lastLowPrice || 0;
       const slots = Math.max(1, (it.width || 1) * (it.height || 1));
@@ -45,7 +35,7 @@ export default function Market() {
     });
     const nq = norm(q);
     let r = items.filter((it: any) =>
-      (!cat || it.types?.includes(cat)) &&
+      !it.types?.includes('preset') && (!cat || it.types?.includes(cat)) &&
       (!nq || norm(it.name).includes(nq) || norm(it.shortName).includes(nq)));
     const by: Record<string, (a: any, b: any) => number> = {
       flea: (a, b) => b.flea - a.flea,
@@ -99,14 +89,14 @@ export default function Market() {
                 <div className="grid2">
                   <div>
                     <h4>Продать</h4>
-                    {(it.sellFor || []).sort((a: any, b: any) => b.priceRUB - a.priceRUB).map((s: any, i: number) => (
+                    {[...(it.sellFor || [])].sort((a: any, b: any) => b.priceRUB - a.priceRUB).map((s: any, i: number) => (
                       <div key={i} className="kv"><span>{isFlea(s.vendor?.name) ? FLEA : s.vendor?.name}</span><b>{rub(s.priceRUB)}</b></div>
                     ))}
                   </div>
                   <div>
                     <h4>Купить</h4>
                     {(it.buyFor || []).length === 0 && <div className="muted small">Не продаётся</div>}
-                    {(it.buyFor || []).sort((a: any, b: any) => a.priceRUB - b.priceRUB).map((s: any, i: number) => (
+                    {[...(it.buyFor || [])].sort((a: any, b: any) => a.priceRUB - b.priceRUB).map((s: any, i: number) => (
                       <div key={i} className="kv"><span>{isFlea(s.vendor?.name) ? FLEA : s.vendor?.name}</span><b>{rub(s.priceRUB)}</b></div>
                     ))}
                   </div>
