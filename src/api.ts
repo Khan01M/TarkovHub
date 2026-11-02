@@ -43,6 +43,9 @@ async function dataset(name: string): Promise<{ data: any; ru: Dict }> {
   return { data: main?.data ?? {}, ru: ru?.data ?? {} };
 }
 
+/** Сырой набор данных с переводом — для своих расчётов */
+export const datasetRaw = (name: string) => dataset(name);
+
 const tr = (ru: Dict, key?: string | null) => (key == null ? '' : ru[key] ?? key);
 
 // В русском переводе tarkov.dev нет некоторых имён — подставляем свои
@@ -70,7 +73,7 @@ const done = new Map<string, Promise<any>>();
 
 /** Загружает данные через loader с кэшем. Без сети отдаёт последний сохранённый результат. */
 export function load<T>(name: string, loader: () => Promise<T>): Promise<T> {
-  const key = `data:v4:${name}:${getGameMode()}`;
+  const key = `data:v5:${name}:${getGameMode()}`;
   if (done.has(key)) return done.get(key)!;
   const fresh = cacheGet(key);
   if (fresh) return Promise.resolve(fresh);
@@ -203,10 +206,7 @@ const HIDDEN_MAPS = new Set(['ground-zero-tutorial']);
 export const loadMaps = () => load<{ maps: MapInfo[]; bosses: Boss[] }>('maps', async () => {
   const { data, ru } = await dataset('maps');
   const mobs: Record<string, any> = data.mobs || {};
-  const mobName = (id: string) => {
-    const t = tr(ru, mobs[id]?.name ?? id);
-    return t === (mobs[id]?.name ?? id) && MOB_RU[id] ? MOB_RU[id] : t;
-  };
+  const mobName = (id: string) => MOB_RU[id] || tr(ru, mobs[id]?.name ?? id);
   const maps: MapInfo[] = Object.values<any>(data.maps || {})
     .filter((m) => !HIDDEN_MAPS.has(m.normalizedName))
     .map((m) => ({

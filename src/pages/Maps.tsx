@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useData, State, safeUrl } from '../ui';
-import { loadMaps } from '../api';
+import { loadMaps, getGameMode } from '../api';
+import { useProgress } from '../progress';
+import { loadQuestData, currentTasks } from '../questdata';
 import { desktop, parseScreenshotName, Pos } from '../position';
 
 
@@ -17,11 +19,33 @@ export default function Maps() {
   const { data, error, loading } = useData(loadMaps);
   const maps = useMemo(() => (data?.maps || []).filter((m: any) => m.name).sort((a: any, b: any) => a.name.localeCompare(b.name, 'ru')), [data]);
   const [sel, setSel] = useState<string>(() => localStorage.getItem('map') || '');
+  // Переход из «Обзора»: карта выбрана по id
+  useEffect(() => {
+    if (!maps.length) return;
+    let id = ''; try { id = localStorage.getItem('mapById') || ''; localStorage.removeItem('mapById'); } catch { /* ignore */ }
+    const m = id && maps.find((x: any) => x.id === id);
+    if (m) pick(m.normalizedName);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maps]);
   const map = maps.find((m: any) => m.normalizedName === sel) || maps[0];
+
+  // Слой квестов: точки текущих заданий на этой карте
+  const qd = useData(loadQuestData);
+  const progress = useProgress(getGameMode());
+  const questPoints = useMemo(() => {
+    if (!qd.data || !map) return [];
+    let level = 0; try { level = Number(localStorage.getItem(`playerLevel:${getGameMode()}`)) || 0; } catch { /* ignore */ }
+    const out: { x: number; z: number; label: string; type: string }[] = [];
+    for (const t of currentTasks(qd.data, progress.done, level || 999)) for (const o of t.objectives) {
+      if (o.optional) continue;
+      for (const p of o.points) if (p.map === map.id) out.push({ x: p.pos.x, z: p.pos.z, label: `${t.name}: ${o.description}`, type: o.type });
+    }
+    return out;
+  }, [qd.data, progress.done, map]);
   const [track, setTrack] = useState<Pos[]>([]);
   const [manual, setManual] = useState('');
   const [hint, setHint] = useState('');
-  const [show, setShow] = useState({ pmc: true, scav: true, shared: true, spawns: false });
+  const [show, setShow] = useState({ pmc: true, scav: true, shared: true, spawns: false, quests: true });
 
   const pick = (n: string) => { setSel(n); localStorage.setItem('map', n); setTrack([]); };
 
@@ -53,13 +77,14 @@ export default function Maps() {
           </div>
           <div className="map-layout">
             <div className="card">
-              <MapCanvas map={map} track={track} show={show} />
+              <MapCanvas map={map} track={track} show={show} quests={show.quests ? questPoints : []} />
               <div className="legend">
                 {(['pmc', 'scav', 'shared'] as const).map((f) => (
                   <label key={f}><input type="checkbox" checked={show[f]} onChange={(e) => setShow({ ...show, [f]: e.target.checked })} />
                     <i style={{ background: FACTION[f].color }} /> Выходы: {FACTION[f].label}</label>
                 ))}
                 <label><input type="checkbox" checked={show.spawns} onChange={(e) => setShow({ ...show, spawns: e.target.checked })} /><i style={{ background: '#888' }} /> Точки спавна</label>
+                <label><input type="checkbox" checked={show.quests} onChange={(e) => setShow({ ...show, quests: e.target.checked })} /><i className="q-dot" /> Квесты ({questPoints.length})</label>
                 <label><i className="me" /> Вы</label>
               </div>
             </div>
@@ -133,14 +158,14 @@ function dedupe(bosses: any[]) {
   return [...m].map(([name, chance]) => ({ name, chance })).sort((a, b) => b.chance - a.chance);
 }
 
-function MapCanvas({ map, track, show }: { map: any; track: Pos[]; show: Record<string, boolean> }) {
+function MapCanvas({ map, track, show, quests = [] }: { map: any; track: Pos[]; show: Record<string, boolean>; quests?: { x: number; z: number; label: string; type: string }[] }) {
   const [view, setView] = useState<View>(() => loadView(map.id));
   useEffect(() => setView(loadView(map.id)), [map.id]);
   const save = (v: View) => { setView(v); localStorage.setItem('view:' + map.id, JSON.stringify(v)); };
 
   const extracts = (map.extracts || []).filter((e: any) => e.position && show[e.faction] !== false);
   const spawns = show.spawns ? (map.spawns || []).filter((s: any) => s.position) : [];
-  const pts = [...(map.extracts || []), ...(map.spawns || [])].map((p: any) => p.position).filter(Boolean).concat(track);
+  const pts = [...(map.extracts || []), ...(map.spawns || [])].map((p: any) => p.position).filter(Boolean).concat(track).concat(quests.map((q) => ({ x: q.x, y: 0, z: q.z })) as any);
 
   if (pts.length === 0) {
     return <div className="map-empty">Координаты для этой карты пока недоступны в API. Используйте подробную карту по ссылке справа.</div>;
@@ -178,6 +203,15 @@ function MapCanvas({ map, track, show }: { map: any; track: Pos[]; show: Record<
             <g key={'e' + i}>
               <circle cx={x} cy={y} r={7} fill={c} stroke="#0f1110" strokeWidth={2} />
               <text x={x > W * 0.7 ? x - 10 : x + 10} y={y + 4} textAnchor={x > W * 0.7 ? 'end' : 'start'} className="map-label">{e.name}</text>
+            </g>
+          );
+        })}
+        {quests.map((q, i) => {
+          const [x, y] = S(q.x, q.z);
+          return (
+            <g key={'q' + i} className="q-mark">
+              <title>{q.label}</title>
+              <rect x={x - 6} y={y - 6} width={12} height={12} transform={`rotate(45 ${x} ${y})`} />
             </g>
           );
         })}

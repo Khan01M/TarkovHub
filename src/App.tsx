@@ -8,18 +8,20 @@ import Maps from './pages/Maps';
 import Quests from './pages/Quests';
 import Guides from './pages/Guides';
 import Promo from './pages/Promo';
+import Overview from './pages/Overview';
 import { useAuth, signIn, signOut } from './auth';
 import { THEMES, getTheme, setTheme, ThemeId } from './theme';
 
-const ROUTES: { id: string; label: string; short?: string; icon: string; el: () => JSX.Element }[] = [
+const ROUTES: { id: string; label: string; short?: string; icon: string; el: () => JSX.Element; noTab?: boolean }[] = [
   { id: 'home', label: 'Главная', icon: '⌂', el: Home },
+  { id: 'overview', label: 'Обзор', icon: '◉', el: Overview },
   { id: 'market', label: 'Барахолка', icon: '₽', el: Market },
   { id: 'weapons', label: 'Оружие', icon: '⌖', el: Weapons },
   { id: 'bosses', label: 'Боссы', icon: '☠', el: Bosses },
   { id: 'maps', label: 'Карты', icon: '◈', el: Maps },
   { id: 'quests', label: 'Квесты', icon: '✓', el: Quests },
   { id: 'promo', label: 'Промокоды', short: 'Коды', icon: '★', el: Promo },
-  { id: 'guides', label: 'Гайды', icon: '☰', el: Guides },
+  { id: 'guides', label: 'Гайды', icon: '☰', el: Guides, noTab: true },
 ];
 
 // Роутинг через #hash — работает и на сайте, и в EXE (file://), и в APK.
@@ -62,7 +64,7 @@ export default function App() {
         <Page />
       </main>
       <nav className="tabbar">
-        {ROUTES.slice(1).map((r) => (
+        {ROUTES.slice(1).filter((r) => !r.noTab).map((r) => (
           <a key={r.id} href={`#/${r.id}`} className={r.id === current.id ? 'active' : ''}>
             <span className="ti">{r.icon}</span><span>{r.short || r.label}</span>
           </a>

@@ -4,6 +4,7 @@ import { rub, loadItems } from '../api';
 import { desktop } from '../position';
 
 const SECTIONS = [
+  { href: '#/overview', title: 'Обзор', text: 'Текущие задания, приоритет карт, что взять в рейд, «Оружейник»', icon: '◉' },
   { href: '#/market', title: 'Барахолка', text: 'Цены за 24 часа, лучший торговец, цена за клетку', icon: '₽' },
   { href: '#/weapons', title: 'Оружие и патроны', text: 'Отдача, эргономика, пробитие патронов', icon: '⌖' },
   { href: '#/bosses', title: 'Боссы', text: 'Где появляются, шанс спавна, охрана', icon: '☠' },
