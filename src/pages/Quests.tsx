@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useData, State, Search, norm, safeUrl } from '../ui';
 import { num, loadTasks, getGameMode, GameMode } from '../api';
-import { useProgress, readLegacy, archiveLegacy, addLocal, readLocal, uploadMarks } from '../progress';
+import { useProgress, useTeam, Teammate, readLegacy, archiveLegacy, addLocal, readLocal, uploadMarks } from '../progress';
 import { signIn } from '../auth';
 
 function useStored(key: string, initial: string) {
@@ -23,7 +23,21 @@ export default function Quests() {
   const [open, setOpen] = useState<string | null>(null);
   const mode = getGameMode();
   const progress = useProgress(mode);
-  const { done, toggle, unsaved } = progress;
+  const { toggle, unsaved } = progress;
+  const myDone = progress.done;
+  const a = progress.auth;
+  const team = useTeam(mode, progress.source === 'account', a.userId, a.name, a.avatar, myDone);
+  // Чей прогресс смотрим: '' — свой, иначе id товарища (только просмотр)
+  const [viewing, setViewing] = useState('');
+  const viewed: Teammate | undefined = viewing ? team.team.find((t) => t.userId === viewing) : undefined;
+  const readOnly = !!viewed && !viewed.me;
+  const done: Record<string, boolean> = useMemo(() => {
+    if (!readOnly) return myDone;
+    const o: Record<string, boolean> = {};
+    viewed!.done.forEach((id) => { o[id] = true; });
+    return o;
+  }, [readOnly, viewed, myDone]);
+  const others = team.team.filter((t) => t.userId !== (readOnly ? viewed!.userId : a.userId));
 
   const tasks = data?.tasks || [];
   // Торговцы в игровом порядке, только те, у кого есть квесты
@@ -64,13 +78,19 @@ export default function Quests() {
   const card = (t: (typeof tasks)[number]) => (
     <div key={t.id} className={`card quest ${done[t.id] ? 'done' : ''}`}>
       <div className="row-main" onClick={() => setOpen(open === t.id ? null : t.id)}>
-        <input type="checkbox" checked={!!done[t.id]} onChange={() => toggle(t.id)} onClick={(e) => e.stopPropagation()} aria-label="Выполнено" disabled={progress.loading} />
+        <input type="checkbox" checked={!!done[t.id]} onChange={() => !readOnly && toggle(t.id)} onClick={(e) => e.stopPropagation()} aria-label="Выполнено" disabled={progress.loading || readOnly} />
         <div className="grow">
           <div className="title">
             {t.name} {t.kappaRequired && <span className="badge">Каппа</span>}
             {!byLoyalty && t.loyalty > 1 && <span className="badge ll">ЛЛ{t.loyalty}</span>}
             {t.id in unsaved && <span className="badge bad">не сохранено</span>}
           </div>
+          {others.some((o) => o.done.has(t.id)) && (
+            <div className="also">
+              {others.filter((o) => o.done.has(t.id)).map((o) => <Avatar key={o.userId} p={o} small />)}
+              <span className="muted small">{others.filter((o) => o.done.has(t.id)).map((o) => o.name).join(', ')} {readOnly ? '' : 'уже выполнил(и)'}</span>
+            </div>
+          )}
           <div className="muted small">
             {byLoyalty ? '' : `${t.trader} · `}{t.map || 'любая карта'} · ур. {t.minPlayerLevel}{t.experience ? ` · ${num(t.experience)} опыта` : ''}
           </div>
@@ -91,10 +111,18 @@ export default function Quests() {
   return (
     <section>
       <h1>Квесты</h1>
-      <p className="lead">Что нужно сделать и где. Отмечайте выполненные — прогресс сохраняется на устройстве.</p>
+      <p className="lead">Что нужно сделать и где. Отмечайте выполненные квесты.</p>
       <ProgressPanel progress={progress} mode={mode} />
+      {team.team.length > 1 && (
+        <TeamBar team={team.team} tasks={tasks.map((t) => t.id)} viewing={viewed?.userId || a.userId || ''} onPick={(id) => setViewing(id === a.userId ? '' : id)} onRefresh={team.reload} loading={team.loading} />
+      )}
+      {team.error && <div className="alert">Не удалось загрузить прогресс команды: {team.error} <button className="btn small" onClick={team.reload}>Повторить</button></div>}
+      {readOnly && (
+        <div className="alert info">Вы смотрите прогресс игрока <b>{viewed!.name}</b> — только просмотр.{' '}
+          <button className="btn small" onClick={() => setViewing('')}>Вернуться к своему</button></div>
+      )}
       {tasks.length > 0 && (
-        <div className="progress"><div className="bar"><i style={{ width: `${(doneCount / tasks.length) * 100}%` }} /></div><span className="small">{modeLabel}: выполнено {doneCount} из {tasks.length}</span></div>
+        <div className="progress"><div className="bar"><i style={{ width: `${(doneCount / tasks.length) * 100}%` }} /></div><span className="small">{readOnly ? `${viewed!.name}, ` : ''}{modeLabel}: выполнено {doneCount} из {tasks.length}</span></div>
       )}
       <div className="tabs">
         <button className={byLoyalty ? 'on' : ''} onClick={() => setView('loyalty')}>По уровням лояльности</button>
@@ -229,6 +257,36 @@ function ProgressPanel({ progress, mode }: { progress: Progress; mode: GameMode 
         </div>
       )}
       {msg && <div className="small">{msg}</div>}
+    </div>
+  );
+}
+
+function Avatar({ p, small }: { p: Teammate; small?: boolean }) {
+  const size = small ? 18 : 24;
+  return p.avatar
+    ? <img className="avatar" src={p.avatar} alt="" width={size} height={size} title={p.name} />
+    : <span className="avatar ph" style={{ width: size, height: size }} title={p.name}>{p.name.slice(0, 1).toUpperCase()}</span>;
+}
+
+/** Команда: кто сколько выполнил в этом режиме; нажатие открывает его список квестов. */
+function TeamBar({ team, tasks, viewing, onPick, onRefresh, loading }: {
+  team: Teammate[]; tasks: string[]; viewing: string; onPick: (id: string) => void; onRefresh: () => void; loading: boolean;
+}) {
+  const ids = new Set(tasks);
+  return (
+    <div className="teambar">
+      <span className="small muted">Команда:</span>
+      {team.map((t) => {
+        const n = [...t.done].filter((id) => ids.has(id)).length;
+        return (
+          <button key={t.userId} className={`team-chip ${t.userId === viewing ? 'on' : ''}`} onClick={() => onPick(t.userId)} title={t.me ? 'Мой прогресс' : `Посмотреть прогресс: ${t.name}`}>
+            <Avatar p={t} />
+            <span>{t.me ? 'Я' : t.name}</span>
+            <b>{n}</b>
+          </button>
+        );
+      })}
+      <button className="linkbtn small" onClick={onRefresh} disabled={loading}>{loading ? 'Обновляю…' : 'Обновить'}</button>
     </div>
   );
 }

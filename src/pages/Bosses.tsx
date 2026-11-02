@@ -1,4 +1,9 @@
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import BodyMap from '../components/BodyMap';
+import { PARTS, PART_RU, PMC, PMC_TOTAL, hpOf, ratio, colorFor, total } from '../health';
+
+// three.js тяжёлый — грузим его только на этой странице и только когда нужен
+const Boss3D = lazy(() => import('../components/Boss3D'));
 import { useData, State, Search, norm } from '../ui';
 import { num, loadMaps } from '../api';
 
@@ -25,15 +30,13 @@ const noteFor = (n: string) => NOTES[NOTE_KEYS[n] || n];
 // Порядок: сначала основные боссы (с подсказками), потом остальные по шансу
 const MAIN = Object.keys(NOTES);
 
-const PART: Record<string, string> = {
-  Head: 'Голова', Chest: 'Грудь', Stomach: 'Живот', LeftArm: 'Л. рука', RightArm: 'П. рука', LeftLeg: 'Л. нога', RightLeg: 'П. нога',
-};
 
 const rank = (b: any) => { const i = MAIN.indexOf(NOTE_KEYS[b.normalizedName] || b.normalizedName); return i < 0 ? 99 : i; };
 
 export default function Bosses() {
   const { data, error, loading } = useData(loadMaps);
   const [q, setQ] = useState('');
+  const [sel, setSel] = useState<string>('');
 
   const bosses = useMemo(() => {
     if (!data) return [];
@@ -55,12 +58,63 @@ export default function Bosses() {
       .sort((a: any, b: any) => rank(a) - rank(b) || (b.spawns[0]?.chance || 0) - (a.spawns[0]?.chance || 0));
   }, [data, q]);
 
+  const withHealth = useMemo(() => bosses.filter((b: any) => b.health?.length), [bosses]);
+  const current = withHealth.find((b: any) => b.normalizedName === sel) || withHealth[0];
+  useEffect(() => { if (!sel && withHealth[0]) setSel(withHealth[0].normalizedName); }, [withHealth, sel]);
+
+  const show3d = (n: string) => {
+    setSel(n);
+    document.getElementById('boss-3d')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
     <section>
       <h1>Боссы</h1>
       <p className="lead">Где появляются, с каким шансом, сколько охраны и здоровья. Шанс спавна меняется с патчами — данные подтягиваются автоматически.</p>
       <div className="toolbar"><Search value={q} onChange={setQ} placeholder="Имя босса или карта…" /></div>
       <State loading={loading} error={error} />
+      {current && (
+        <div className="card boss-viewer" id="boss-3d">
+          <div className="boss-viewer-3d">
+            <Suspense fallback={<div className="boss3d"><div className="state small"><span className="spinner" /> Загружаю 3D…</div></div>}>
+              <Boss3D name={current.name} health={current.health} />
+            </Suspense>
+          </div>
+          <div className="boss-viewer-info">
+            <select value={current.normalizedName} onChange={(e) => setSel(e.target.value)} aria-label="Босс">
+              {withHealth.map((b: any) => <option key={b.normalizedName} value={b.normalizedName}>{b.name}</option>)}
+            </select>
+            <div className="hp-total">
+              <b>{num(total(current.health))}</b> HP
+              <span className="muted small"> · у ЧВК {PMC_TOTAL} · в {(total(current.health) / PMC_TOTAL).toFixed(1)} раза больше</span>
+            </div>
+            <div className="hp-bars">
+              {PARTS.map((id) => {
+                const hp = hpOf(current.health, id);
+                const max = Math.max(...withHealth.map((b: any) => hpOf(b.health, id)), PMC[id]);
+                return (
+                  <div key={id} className="hp-row">
+                    <span className="hp-name">{PART_RU[id]}</span>
+                    <div className="hp-track">
+                      <i className="hp-fill" style={{ width: `${(hp / max) * 100}%`, background: colorFor(ratio(current.health, id)) }} />
+                      <i className="hp-pmc" style={{ left: `${(PMC[id] / max) * 100}%` }} title={`ЧВК: ${PMC[id]}`} />
+                    </div>
+                    <b className="hp-val">{hp}</b>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="hp-legend small muted">
+              Цвет — во сколько раз крепче обычного ЧВК:
+              <span><i style={{ background: colorFor(1) }} />как ЧВК</span>
+              <span><i style={{ background: colorFor(2) }} />×2</span>
+              <span><i style={{ background: colorFor(3) }} />×3</span>
+              <span><i style={{ background: colorFor(4) }} />×4+</span>
+              <span><i className="pmc-mark" />уровень ЧВК</span>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="cards">
         {bosses.map((b: any) => {
           const hp = (b.health || []).reduce((s: number, h: any) => s + (h.max || 0), 0);
@@ -87,10 +141,10 @@ export default function Bosses() {
                 </div>
               ))}
               {b.health?.length > 0 && (
-                <details>
-                  <summary>Здоровье по частям тела</summary>
-                  {b.health.map((h: any) => <div key={h.id} className="kv small"><span>{PART[h.id] || h.id}</span><b>{h.max}</b></div>)}
-                </details>
+                <>
+                  <BodyMap health={b.health} />
+                  <button className="btn ghost small" onClick={() => show3d(b.normalizedName)}>Показать в 3D</button>
+                </>
               )}
             </div>
           );

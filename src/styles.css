@@ -172,3 +172,50 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 14px; }
 .alert.info { background: #22231b; border-color: #3d3b2a; }
 .alert .btn.small { margin: 8px 8px 0 0; }
 @media (max-width: 860px) { .auth-name { display: none; } }
+
+/* Здоровье боссов: 3D и схемы */
+.boss-viewer { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-bottom: 14px; scroll-margin-top: 70px; }
+.boss3d { position: relative; height: 420px; border-radius: 10px; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 70%, #262b29 0%, #121514 70%); touch-action: pan-y; }
+.boss3d-canvas { width: 100% !important; height: 100% !important; display: block; cursor: grab; }
+.boss3d-canvas:active { cursor: grabbing; }
+.boss3d-label { position: absolute; left: 0; top: 0; pointer-events: none; font: 700 12px/1 system-ui, sans-serif; color: #fff;
+  background: rgba(15,17,16,.72); border: 1px solid rgba(255,255,255,.12); padding: 3px 6px; border-radius: 6px; white-space: nowrap; transition: opacity .2s; }
+.boss3d-label.on { background: var(--accent); color: #15130d; }
+.boss3d-tip { position: absolute; left: 10px; right: 10px; bottom: 34px; background: rgba(15,17,16,.85); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.boss3d-hint { position: absolute; left: 0; right: 0; bottom: 8px; text-align: center; pointer-events: none; }
+.boss-viewer-info { display: flex; flex-direction: column; gap: 12px; }
+.boss-viewer-info select { width: 100%; }
+.hp-total { font-size: 22px; } .hp-total b { color: var(--accent); }
+.hp-bars { display: flex; flex-direction: column; gap: 8px; }
+.hp-row { display: grid; grid-template-columns: 70px 1fr 44px; align-items: center; gap: 8px; font-size: 13px; }
+.hp-name { color: var(--muted); }
+.hp-track { position: relative; height: 12px; background: var(--panel2); border-radius: 99px; overflow: visible; }
+.hp-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 99px; transition: width .6s cubic-bezier(.2,.8,.2,1); }
+.hp-pmc { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #fff; opacity: .7; border-radius: 1px; }
+.hp-val { text-align: right; }
+.hp-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.hp-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.hp-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.hp-legend i.pmc-mark { width: 2px; height: 12px; background: #fff; border-radius: 1px; }
+.bodymap { display: flex; gap: 14px; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.bodymap-list { flex: 1; }
+.bodymap .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.boss .btn.ghost.small { align-self: flex-start; margin-top: 8px; }
+@media (max-width: 860px) {
+  .boss-viewer { grid-template-columns: 1fr; }
+  .boss3d { height: 340px; }
+}
+@media (prefers-reduced-motion: reduce) { .hp-fill { transition: none; } }
+
+/* Прогресс команды */
+.teambar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.team-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--line); color: var(--text);
+  border-radius: 99px; padding: 3px 10px 3px 3px; cursor: pointer; font: inherit; font-size: 13px; }
+.team-chip.on { border-color: var(--accent); background: #2a2718; }
+.team-chip b { color: var(--accent); }
+.avatar { border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.avatar.ph { display: inline-grid; place-items: center; background: var(--panel2); color: var(--accent); font-size: 11px; font-weight: 700; }
+.also { display: flex; align-items: center; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+.also .avatar + .avatar { margin-left: -6px; box-shadow: 0 0 0 2px var(--panel); }
+.quest input:disabled { opacity: .6; }
