@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { useData, State, Search, norm, Img, safeUrl } from '../ui';
+import { useData, State, Search, norm, Img } from '../ui';
 import { rub, num, loadItems } from '../api';
+import ItemModal from '../components/ItemModal';
 
 
 const CATS: [string, string][] = [
@@ -14,7 +15,6 @@ const SORTS: [string, string][] = [
   ['change', 'Изменение за 48ч'], ['name', 'Название'],
 ];
 
-const FLEA = 'Барахолка';
 const isFlea = (v?: string) => !!v && (v === 'Flea Market' || v === 'FleaMarket' || norm(v).includes('барахолк'));
 
 export default function Market() {
@@ -23,7 +23,7 @@ export default function Market() {
   const [cat, setCat] = useState('');
   const [sort, setSort] = useState('flea');
   const [limit, setLimit] = useState(60);
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<any>(null);
 
   const rows = useMemo(() => {
     const items = (data?.items || []).map((it: any) => {
@@ -64,7 +64,7 @@ export default function Market() {
       {data && <div className="muted small">Найдено: {rows.length}</div>}
       <div className="list">
         {rows.slice(0, limit).map((it: any) => (
-          <div key={it.id} className="row card" onClick={() => setOpen(open === it.id ? null : it.id)}>
+          <div key={it.id} className="row card" onClick={() => setOpen(it)}>
             <div className="row-main">
               <Img src={it.iconLink} alt={it.shortName} />
               <div className="grow">
@@ -84,32 +84,11 @@ export default function Market() {
                 <div className="muted small">{it.best ? `${it.best.vendor.name}: ${rub(it.best.priceRUB)}` : 'торговцы не берут'}</div>
               </div>
             </div>
-            {open === it.id && (
-              <div className="details" onClick={(e) => e.stopPropagation()}>
-                <div className="grid2">
-                  <div>
-                    <h4>Продать</h4>
-                    {[...(it.sellFor || [])].sort((a: any, b: any) => b.priceRUB - a.priceRUB).map((s: any, i: number) => (
-                      <div key={i} className="kv"><span>{isFlea(s.vendor?.name) ? FLEA : s.vendor?.name}</span><b>{rub(s.priceRUB)}</b></div>
-                    ))}
-                  </div>
-                  <div>
-                    <h4>Купить</h4>
-                    {(it.buyFor || []).length === 0 && <div className="muted small">Не продаётся</div>}
-                    {[...(it.buyFor || [])].sort((a: any, b: any) => a.priceRUB - b.priceRUB).map((s: any, i: number) => (
-                      <div key={i} className="kv"><span>{isFlea(s.vendor?.name) ? FLEA : s.vendor?.name}</span><b>{rub(s.priceRUB)}</b></div>
-                    ))}
-                  </div>
-                </div>
-                <div className="kv"><span>Минимум за 24ч</span><b>{rub(it.low24hPrice)}</b></div>
-                <div className="kv"><span>Последняя цена</span><b>{rub(it.lastLowPrice)}</b></div>
-                {safeUrl(it.wikiLink) && <a className="link" href={safeUrl(it.wikiLink)} target="_blank" rel="noreferrer">Открыть в Wiki ↗</a>}
-              </div>
-            )}
           </div>
         ))}
       </div>
       {rows.length > limit && <button className="more" onClick={() => setLimit(limit + 60)}>Показать ещё</button>}
+      {open && <ItemModal item={open} allItems={data?.items} onClose={() => setOpen(null)} onOpen={setOpen} />}
     </section>
   );
 }

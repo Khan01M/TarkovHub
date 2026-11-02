@@ -395,3 +395,48 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 14px; }
 .mq-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .mq-actions label { display: flex; align-items: center; gap: 6px; }
 .small-mode button { padding: 4px 10px; font-size: 12px; }
+
+/* ---------- Список оружия ---------- */
+.glist { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.grow-row { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; color: inherit; font: inherit; cursor: pointer; padding: 8px 12px; }
+.grow-row:hover { border-color: var(--accent); }
+.grow-row:hover .title { color: var(--accent); }
+.gimg { flex: 0 0 170px; height: 68px; display: flex; align-items: center; justify-content: center; background: var(--sunken); border-radius: 8px; overflow: hidden; }
+.gimg img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.ginfo { flex: 1; min-width: 0; }
+.gmeta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); margin-top: 4px; align-items: center; }
+.gmeta b { color: var(--text); font-weight: 600; }
+.gprice { font-weight: 700; white-space: nowrap; }
+.table tr.click { cursor: pointer; }
+.table tr.click:hover td { background: var(--panel2); }
+@media (max-width: 640px) {
+  .grow-row { flex-wrap: wrap; gap: 8px 12px; }
+  .gimg { flex: 0 0 120px; height: 52px; }
+  .ginfo { flex: 1 1 140px; }
+  .gprice { margin-left: auto; }
+}
+
+/* ---------- Окно предмета ---------- */
+.im-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.7); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.im-dialog { position: relative; width: min(760px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.im-close { position: absolute; top: 8px; right: 8px; z-index: 2; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 16px; cursor: pointer; }
+.im-close:hover { border-color: var(--accent); color: var(--accent); }
+.im-hero { background: radial-gradient(ellipse at center, #3a3d36 0%, #181a16 75%); display: flex; align-items: center; justify-content: center; min-height: 220px; padding: 12px; }
+.im-img { width: 100%; max-width: 640px; max-height: 420px; object-fit: contain; image-rendering: auto; }
+.im-noimg { color: var(--muted); }
+.im-body { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 10px; }
+.im-body h2 { margin: 0; font-size: 20px; }
+.im-body h4 { margin: 6px 0 4px; }
+.im-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.im-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.im-prices { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.im-ammo { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; }
+.im-ammo-item { display: flex; align-items: center; gap: 8px; padding: 4px 8px; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+.im-ammo-item:hover { border-color: var(--accent); }
+@media (max-width: 640px) {
+  .im-backdrop { padding: 0; align-items: stretch; }
+  .im-dialog { max-height: 100vh; border-radius: 0; border: 0; }
+  .im-hero { min-height: 180px; }
+  .im-prices { grid-template-columns: 1fr; gap: 4px; }
+}
+.stat b .pen { font-size: 16px; color: #111; } .stat b .pen.pen0 { color: #eee; }

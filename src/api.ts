@@ -73,7 +73,7 @@ const done = new Map<string, Promise<any>>();
 
 /** Загружает данные через loader с кэшем. Без сети отдаёт последний сохранённый результат. */
 export function load<T>(name: string, loader: () => Promise<T>): Promise<T> {
-  const key = `data:v5:${name}:${getGameMode()}`;
+  const key = `data:v6:${name}:${getGameMode()}`;
   if (done.has(key)) return done.get(key)!;
   const fresh = cacheGet(key);
   if (fresh) return Promise.resolve(fresh);
@@ -115,7 +115,7 @@ export type Item = {
   id: string; name: string; shortName: string; iconLink?: string; wikiLink?: string; types: string[];
   width: number; height: number; avg24hPrice?: number; low24hPrice?: number; lastLowPrice?: number;
   changeLast48hPercent?: number; sellFor: Offer[]; buyFor: Offer[];
-  gun?: { caliber: string; fireRate: number; ergonomics: number; recoilVertical: number; recoilHorizontal: number; defaultAmmo?: string };
+  gun?: { caliber: string; fireRate: number; ergonomics: number; recoilVertical: number; recoilHorizontal: number; defaultAmmo?: string; preset?: string };
   ammo?: { caliber: string; damage: number; penetrationPower: number; armorDamage: number; initialSpeed: number; projectileCount: number };
 };
 
@@ -150,6 +150,7 @@ export const loadItems = () => load<{ items: Item[] }>('items', async () => {
         caliber: p.caliber, fireRate: p.fireRate, ergonomics: p.ergonomics,
         recoilVertical: p.recoilVertical, recoilHorizontal: p.recoilHorizontal,
         defaultAmmo: p.defaultAmmo && all[p.defaultAmmo] ? tr(ru, all[p.defaultAmmo].name) : undefined,
+        preset: p.defaultPreset && all[p.defaultPreset] ? p.defaultPreset : undefined,
       };
     }
     if (p.propertiesType === 'ItemPropertiesAmmo' && types.includes('ammo')) {

@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
-import { useData, State, Search, norm, Img, safeUrl } from '../ui';
+import { useData, State, Search, norm, Img } from '../ui';
 import { rub, num, loadItems } from '../api';
+import type { Item } from '../api';
+import ItemModal, { rowImage } from '../components/ItemModal';
 
 
 // "Caliber556x45NATO" → "5.56x45 NATO"
@@ -18,7 +20,7 @@ export function caliberName(c?: string) {
 }
 
 // Класс брони, который патрон уверенно пробивает (ориентир: пробитие / 10)
-const penClass = (p: number) => Math.min(6, Math.max(0, Math.floor(p / 10)));
+export const penClass = (p: number) => Math.min(6, Math.max(0, Math.floor(p / 10)));
 
 export default function Weapons() {
   const [tab, setTab] = useState<'guns' | 'ammo'>('guns');
@@ -39,6 +41,7 @@ function Guns() {
   const [q, setQ] = useState('');
   const [cal, setCal] = useState('');
   const [sort, setSort] = useState('recoil');
+  const [open, setOpen] = useState<Item | null>(null);
   const guns = useMemo(() => {
     const nq = norm(q);
     const list = (data?.items || []).filter((g: any) => g.gun?.caliber &&
@@ -69,39 +72,38 @@ function Guns() {
         </select>
       </div>
       <State loading={loading} error={error} />
-      <div className="cards">
+      {data && <div className="muted small">Найдено: {guns.length} · нажмите на оружие, чтобы открыть карточку</div>}
+      <div className="glist">
         {guns.map((g: any) => {
           const p = g.gun;
-          const trader = [...(g.buyFor || [])].filter((b: any) => !/flea|барахол/i.test(b.vendor?.name || '')).sort((a: any, b: any) => a.priceRUB - b.priceRUB)[0];
+          const price = g.avg24hPrice || [...(g.buyFor || [])].sort((a: any, b: any) => a.priceRUB - b.priceRUB)[0]?.priceRUB;
           return (
-            <div key={g.id} className="card gun">
-              <div className="row-main">
-                <Img src={g.iconLink} alt={g.shortName} size={64} />
-                <div className="grow">
-                  <div className="title">{g.name}</div>
-                  <div className="tag">{caliberName(p.caliber)}</div>
+            <button key={g.id} className="grow-row card" onClick={() => setOpen(g)}>
+              <div className="gimg"><GunThumb it={g} /></div>
+              <div className="ginfo">
+                <div className="title">{g.name}</div>
+                <div className="gmeta">
+                  <span className="tag">{caliberName(p.caliber)}</span>
+                  <span>Отдача <b>{num(p.recoilVertical)}</b>/<b>{num(p.recoilHorizontal)}</b></span>
+                  <span>Эрго <b>{num(p.ergonomics)}</b></span>
+                  <span><b>{num(p.fireRate)}</b> выстр./мин</span>
                 </div>
               </div>
-              <div className="stats">
-                <Stat label="Отдача верт." value={num(p.recoilVertical)} />
-                <Stat label="Отдача гор." value={num(p.recoilHorizontal)} />
-                <Stat label="Эргономика" value={num(p.ergonomics)} />
-                <Stat label="Выстр./мин" value={num(p.fireRate)} />
-              </div>
-              <div className="kv"><span>Барахолка</span><b>{rub(g.avg24hPrice)}</b></div>
-              {trader && <div className="kv"><span>{trader.vendor.name}</span><b>{rub(trader.priceRUB)}</b></div>}
-              {p.defaultAmmo && <div className="muted small">Патрон по умолчанию: {p.defaultAmmo}</div>}
-              {safeUrl(g.wikiLink) && <a className="link small" href={safeUrl(g.wikiLink)} target="_blank" rel="noreferrer">Wiki ↗</a>}
-            </div>
+              <div className="gprice">{rub(price)}</div>
+            </button>
           );
         })}
       </div>
+      {open && <ItemModal item={open} allItems={data?.items} onClose={() => setOpen(null)} onOpen={setOpen} />}
     </>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return <div className="stat"><b>{value}</b><span>{label}</span></div>;
+function GunThumb({ it }: { it: Item }) {
+  const [bad, setBad] = useState(false);
+  const src = rowImage(it);
+  if (!src || bad) return <Img src={it.iconLink} alt={it.shortName} size={64} />;
+  return <img src={src} alt={it.shortName} loading="lazy" onError={() => setBad(true)} />;
 }
 
 // Цена патрона: средняя на барахолке, а если там его нет — самая дешёвая у торговцев
@@ -115,6 +117,7 @@ function Ammo() {
   const { data, error, loading } = useData(loadItems);
   const [cal, setCal] = useState('');
   const [q, setQ] = useState('');
+  const [open, setOpen] = useState<Item | null>(null);
   const ammo = useMemo(() => (data?.items || []).filter((i: any) => i.ammo).map((i: any) => ({ ...i.ammo, item: i })), [data]);
   const calibers = useMemo(() => Array.from(new Set(ammo.map((a: any) => a.caliber).filter(Boolean))).sort() as string[], [ammo]);
   const list = useMemo(() => {
@@ -141,7 +144,7 @@ function Ammo() {
             <thead><tr><th>Патрон</th><th>Калибр</th><th>Урон</th><th>Пробитие</th><th>Урон броне</th><th>Скорость</th><th>Цена</th></tr></thead>
             <tbody>
               {list.map((a: any) => (
-                <tr key={a.item.id}>
+                <tr key={a.item.id} className="click" onClick={() => setOpen(a.item)}>
                   <td><div className="cell-item"><Img src={a.item.iconLink} alt="" size={28} />{a.item.shortName || a.item.name}</div></td>
                   <td className="muted">{caliberName(a.caliber)}</td>
                   <td>{a.projectileCount > 1 ? `${a.damage}×${a.projectileCount}` : a.damage}</td>
@@ -155,6 +158,7 @@ function Ammo() {
           </table>
         </div>
       )}
+      {open && <ItemModal item={open} allItems={data?.items} onClose={() => setOpen(null)} onOpen={setOpen} />}
     </>
   );
 }
