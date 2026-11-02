@@ -43,7 +43,7 @@
       "output": "release"
     },
     "win": {
-      "artifactName": "TarkovHub-${version}-${arch}-${target}.${ext}"
+      "artifactName": "TarkovHub-${version}-${arch}-setup.${ext}"
     },
     "mac": {
       "category": "public.app-category.games",
@@ -51,6 +51,14 @@
     },
     "linux": {
       "category": "Game"
+    },
+    "portable": {
+      "artifactName": "TarkovHub-${version}-${arch}-portable.${ext}"
+    },
+    "nsis": {
+      "artifactName": "TarkovHub-${version}-${arch}-setup.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
     }
   }
 }
