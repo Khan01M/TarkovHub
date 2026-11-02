@@ -357,3 +357,13 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 14px; }
 .q-mark rect { fill: #ff8a3d; stroke: #1a0f08; stroke-width: 2; cursor: help; }
 .legend i.q-dot { background: #ff8a3d; border-radius: 2px; transform: rotate(45deg); }
 @media (max-width: 860px) { .ov-grid, .gs-body { grid-template-columns: 1fr; } }
+
+/* Карта местности */
+.map-svg.map-real { aspect-ratio: 4 / 3; height: auto; touch-action: none; cursor: grab; background: #1a2a2c; }
+.map-svg.map-real:active { cursor: grabbing; }
+.map-sea { fill: #16292b; }
+.map-real .map-label { fill: #fff; paint-order: stroke; stroke: rgba(0,0,0,.85); stroke-linejoin: round; pointer-events: none; }
+.map-loading { position: absolute; left: 12px; top: 52px; background: var(--topbar); padding: 6px 10px; border-radius: 8px; }
+.map-floors { position: absolute; left: 10px; top: 10px; }
+.map-floors select { padding: 5px 8px; font-size: 13px; }
+.map-tools .btn.small { min-width: 34px; font-size: 16px; }

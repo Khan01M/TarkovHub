@@ -4,6 +4,7 @@ import { loadMaps, getGameMode } from '../api';
 import { useProgress } from '../progress';
 import { loadQuestData, currentTasks } from '../questdata';
 import { desktop, parseScreenshotName, Pos } from '../position';
+import MapView, { hasMapImage } from '../components/MapView';
 
 
 const FACTION: Record<string, { label: string; color: string }> = {
@@ -77,7 +78,9 @@ export default function Maps() {
           </div>
           <div className="map-layout">
             <div className="card">
-              <MapCanvas map={map} track={track} show={show} quests={show.quests ? questPoints : []} />
+              {hasMapImage(map.normalizedName)
+                ? <MapView map={map} track={track} show={show} quests={show.quests ? questPoints : []} />
+                : <MapCanvas map={map} track={track} show={show} quests={show.quests ? questPoints : []} />}
               <div className="legend">
                 {(['pmc', 'scav', 'shared'] as const).map((f) => (
                   <label key={f}><input type="checkbox" checked={show[f]} onChange={(e) => setShow({ ...show, [f]: e.target.checked })} />
