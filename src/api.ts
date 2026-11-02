@@ -70,7 +70,7 @@ const done = new Map<string, Promise<any>>();
 
 /** Загружает данные через loader с кэшем. Без сети отдаёт последний сохранённый результат. */
 export function load<T>(name: string, loader: () => Promise<T>): Promise<T> {
-  const key = `data:v3:${name}:${getGameMode()}`;
+  const key = `data:v4:${name}:${getGameMode()}`;
   if (done.has(key)) return done.get(key)!;
   const fresh = cacheGet(key);
   if (fresh) return Promise.resolve(fresh);
@@ -168,7 +168,34 @@ export type MapInfo = {
   extracts: { name: string; faction: string; position?: { x: number; y: number; z: number } }[];
   spawns: { position: { x: number; y: number; z: number }; sides: string[] }[];
 };
-export type Boss = { normalizedName: string; name: string; imagePortraitLink?: string; health: { id: string; max: number }[] };
+export type GearSlot = 'FirstPrimaryWeapon' | 'SecondPrimaryWeapon' | 'Holster' | 'Scabbard' | 'Headwear' | 'FaceCover' | 'Earpiece' | 'Eyewear' | 'ArmorVest' | 'TacticalVest' | 'Backpack';
+export const GEAR_SLOTS: GearSlot[] = ['FirstPrimaryWeapon', 'SecondPrimaryWeapon', 'Holster', 'Scabbard', 'Headwear', 'FaceCover', 'Earpiece', 'Eyewear', 'ArmorVest', 'TacticalVest', 'Backpack'];
+/** Снаряжение: для каждого слота — предметы и доля наборов, в которых они встречаются (0..1) */
+export type Gear = { slot: GearSlot; items: { id: string; share: number }[] }[];
+export type Boss = {
+  normalizedName: string; name: string; imagePortraitLink?: string; imagePosterLink?: string;
+  health: { id: string; max: number }[];
+  gear: Gear;
+  /** Лут в карманах и рюкзаке: id предмета и шанс в процентах */
+  loot: { id: string; chance: number }[];
+};
+
+function summarizeGear(equipment: any[]): Gear {
+  const bySlot: Record<string, Record<string, number>> = {};
+  for (const e of equipment || []) {
+    const slot = e?.attributes?.slot;
+    if (!GEAR_SLOTS.includes(slot)) continue;
+    (bySlot[slot] ||= {})[e.item] = (bySlot[slot][e.item] || 0) + 1;
+  }
+  // Число вариантов снаряжения — по самому заполненному «одиночному» слоту
+  const samples = Math.max(1, ...['FirstPrimaryWeapon', 'Holster', 'TacticalVest', 'ArmorVest', 'Headwear']
+    .map((sl) => Object.values(bySlot[sl] || {}).reduce((a, b) => a + b, 0)));
+  return GEAR_SLOTS.filter((sl) => bySlot[sl]).map((slot) => ({
+    slot,
+    items: Object.entries(bySlot[slot]).map(([id, n]) => ({ id, share: Math.min(1, n / samples) }))
+      .sort((a, b) => b.share - a.share).slice(0, 8),
+  }));
+}
 
 // Служебные и обучающие карты не показываем
 const HIDDEN_MAPS = new Set(['ground-zero-tutorial']);
@@ -204,7 +231,12 @@ export const loadMaps = () => load<{ maps: MapInfo[]; bosses: Boss[] }>('maps', 
     const prev = byName.get(mob.normalizedName);
     const health = (mob.health || []).map((h: any) => ({ id: h.id, max: h.max }));
     if (!prev || (!prev.health.length && health.length)) {
-      byName.set(mob.normalizedName, { normalizedName: mob.normalizedName, name: mobName(id), imagePortraitLink: mob.imagePortraitLink, health });
+      byName.set(mob.normalizedName, {
+        normalizedName: mob.normalizedName, name: mobName(id), imagePortraitLink: mob.imagePortraitLink, imagePosterLink: mob.imagePosterLink,
+        health, gear: summarizeGear(mob.equipment),
+        loot: (mob.items || []).map((x: any) => ({ id: x.id, chance: x.attributes?.prevalence || 0 }))
+          .filter((x: any) => x.chance > 0).sort((a: any, b: any) => b.chance - a.chance).slice(0, 24),
+      });
     }
   }
   return { maps, bosses: [...byName.values()] };
