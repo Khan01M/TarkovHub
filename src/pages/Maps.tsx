@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useData, State, safeUrl } from '../ui';
 import { loadMaps, getGameMode } from '../api';
 import { useProgress } from '../progress';
-import { loadQuestData, currentTasks } from '../questdata';
+import { loadQuestData, currentTasks, QuestTask } from '../questdata';
+import { Img } from '../ui';
+import { rub } from '../api';
 import { desktop, parseScreenshotName, Pos } from '../position';
 import MapView, { hasMapImage } from '../components/MapView';
+import { PinMark, QuestPin, TYPE_ICON } from '../components/Pin';
 
 
 const FACTION: Record<string, { label: string; color: string }> = {
@@ -33,16 +36,37 @@ export default function Maps() {
   // Слой квестов: точки текущих заданий на этой карте
   const qd = useData(loadQuestData);
   const progress = useProgress(getGameMode());
-  const questPoints = useMemo(() => {
-    if (!qd.data || !map) return [];
+  // Какие квесты показывать: текущие (по прогрессу) или все квесты этой карты
+  const [questScope, setQuestScope] = useState<'current' | 'all'>(() => { try { return (localStorage.getItem('mapQuestScope') as any) || 'current'; } catch { return 'current'; } });
+  const setScope = (v: 'current' | 'all') => { setQuestScope(v); try { localStorage.setItem('mapQuestScope', v); } catch { /* ignore */ } };
+  const [selTask, setSelTask] = useState<string | null>(null);
+  const [focus, setFocus] = useState<{ n: number; pts: [number, number][] } | null>(null);
+  useEffect(() => { setSelTask(null); setFocus(null); }, [map?.id, questScope]);
+
+  // Квесты, у которых есть точки на этой карте
+  const mapQuests = useMemo(() => {
+    if (!qd.data || !map) return [] as { task: QuestTask; objs: QuestTask['objectives'] }[];
     let level = 0; try { level = Number(localStorage.getItem(`playerLevel:${getGameMode()}`)) || 0; } catch { /* ignore */ }
-    const out: { x: number; z: number; label: string; type: string }[] = [];
-    for (const t of currentTasks(qd.data, progress.done, level || 999)) for (const o of t.objectives) {
-      if (o.optional) continue;
-      for (const p of o.points) if (p.map === map.id) out.push({ x: p.pos.x, z: p.pos.z, label: `${t.name}: ${o.description}`, type: o.type });
+    const pool = questScope === 'current' ? currentTasks(qd.data, progress.done, level || 999) : qd.data.tasks;
+    return pool.map((task) => ({ task, objs: task.objectives.filter((o) => o.points.some((p) => p.map === map.id)) }))
+      .filter((q) => q.objs.length > 0)
+      .sort((a, b) => a.task.trader.localeCompare(b.task.trader, 'ru') || a.task.minPlayerLevel - b.task.minPlayerLevel);
+  }, [qd.data, progress.done, map, questScope]);
+
+  const questPoints = useMemo(() => {
+    const out: QuestPin[] = [];
+    if (!map) return out;
+    for (const { task, objs } of mapQuests) for (const o of objs) {
+      for (const p of o.points) if (p.map === map.id) out.push({ x: p.pos.x, z: p.pos.z, taskId: task.id, name: task.name, label: o.description, type: o.type, done: !!progress.done[task.id] });
     }
     return out;
-  }, [qd.data, progress.done, map]);
+  }, [mapQuests, map, progress.done]);
+
+  const chooseTask = (id: string | null, fromList: boolean) => {
+    setSelTask(id);
+    if (id && fromList) setFocus({ n: Date.now(), pts: questPoints.filter((p) => p.taskId === id).map((p) => [p.x, p.z]) });
+    if (id && !fromList) setTimeout(() => document.getElementById('mq-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+  };
   const [track, setTrack] = useState<Pos[]>([]);
   const [manual, setManual] = useState('');
   const [hint, setHint] = useState('');
@@ -79,19 +103,32 @@ export default function Maps() {
           <div className="map-layout">
             <div className="card">
               {hasMapImage(map.normalizedName)
-                ? <MapView map={map} track={track} show={show} quests={show.quests ? questPoints : []} />
-                : <MapCanvas map={map} track={track} show={show} quests={show.quests ? questPoints : []} />}
+                ? <MapView map={map} track={track} show={show} quests={show.quests ? questPoints : []} selected={selTask} onSelect={(id) => chooseTask(id, false)} focus={focus} />
+                : <MapCanvas map={map} track={track} show={show} quests={show.quests ? questPoints : []} selected={selTask} onSelect={(id) => chooseTask(id, false)} />}
+              {selTask && (() => {
+                const q = mapQuests.find((x) => x.task.id === selTask);
+                return q ? (
+                  <div className="map-sel">
+                    <b>{q.task.name}</b> <span className="muted small">· {q.task.trader} · точек на карте: {questPoints.filter((p) => p.taskId === selTask).length}</span>
+                    <button className="linkbtn small" onClick={() => chooseTask(null, false)}>Снять выделение</button>
+                  </div>
+                ) : null;
+              })()}
               <div className="legend">
                 {(['pmc', 'scav', 'shared'] as const).map((f) => (
                   <label key={f}><input type="checkbox" checked={show[f]} onChange={(e) => setShow({ ...show, [f]: e.target.checked })} />
                     <i style={{ background: FACTION[f].color }} /> Выходы: {FACTION[f].label}</label>
                 ))}
                 <label><input type="checkbox" checked={show.spawns} onChange={(e) => setShow({ ...show, spawns: e.target.checked })} /><i style={{ background: '#888' }} /> Точки спавна</label>
-                <label><input type="checkbox" checked={show.quests} onChange={(e) => setShow({ ...show, quests: e.target.checked })} /><i className="q-dot" /> Квесты ({questPoints.length})</label>
+                <label><input type="checkbox" checked={show.quests} onChange={(e) => setShow({ ...show, quests: e.target.checked })} /><i className="q-pin" /> Квесты ({mapQuests.length})</label>
                 <label><i className="me" /> Вы</label>
               </div>
             </div>
             <div className="side">
+              {show.quests && qd.data && (
+                <MapQuestList quests={mapQuests} data={qd.data} selected={selTask} onSelect={(id) => chooseTask(id, true)}
+                  scope={questScope} setScope={setScope} done={progress.done} toggle={progress.toggle} canEdit={!progress.loading} />
+              )}
               <div className="card">
                 <h3>{map.name}</h3>
                 {map.description && <p className="muted small">{map.description}</p>}
@@ -161,7 +198,7 @@ function dedupe(bosses: any[]) {
   return [...m].map(([name, chance]) => ({ name, chance })).sort((a, b) => b.chance - a.chance);
 }
 
-function MapCanvas({ map, track, show, quests = [] }: { map: any; track: Pos[]; show: Record<string, boolean>; quests?: { x: number; z: number; label: string; type: string }[] }) {
+function MapCanvas({ map, track, show, quests = [], selected, onSelect }: { map: any; track: Pos[]; show: Record<string, boolean>; quests?: QuestPin[]; selected?: string | null; onSelect?: (id: string | null) => void }) {
   const [view, setView] = useState<View>(() => loadView(map.id));
   useEffect(() => setView(loadView(map.id)), [map.id]);
   const save = (v: View) => { setView(v); localStorage.setItem('view:' + map.id, JSON.stringify(v)); };
@@ -209,15 +246,7 @@ function MapCanvas({ map, track, show, quests = [] }: { map: any; track: Pos[]; 
             </g>
           );
         })}
-        {quests.map((q, i) => {
-          const [x, y] = S(q.x, q.z);
-          return (
-            <g key={'q' + i} className="q-mark">
-              <title>{q.label}</title>
-              <rect x={x - 6} y={y - 6} width={12} height={12} transform={`rotate(45 ${x} ${y})`} />
-            </g>
-          );
-        })}
+        {quests.map((q, i) => { const [x, y] = S(q.x, q.z); return <PinMark key={'q' + i} q={q} x={x} y={y} u={1} selected={selected} onSelect={onSelect} />; })}
         {track.length > 1 && (
           <polyline fill="none" stroke="#d9573b" strokeOpacity={0.5} strokeDasharray="4 4" strokeWidth={2}
             points={track.map((p) => S(p.x, p.z).join(',')).join(' ')} />
@@ -264,5 +293,75 @@ function GameDirSetting() {
       <div className="muted">Папка игры (для автоопределения карты): {dir || 'не найдена'}</div>
       <button className="btn ghost small" onClick={async () => { const d = await api.chooseGameDir(); if (d) setDir(d); }}>Указать папку игры…</button>
     </>
+  );
+}
+
+function MapQuestList({ quests, data, selected, onSelect, scope, setScope, done, toggle, canEdit }: {
+  quests: { task: QuestTask; objs: QuestTask['objectives'] }[]; data: any; selected: string | null; onSelect: (id: string | null) => void;
+  scope: 'current' | 'all'; setScope: (v: 'current' | 'all') => void; done: Record<string, boolean>; toggle: (id: string) => void; canEdit: boolean;
+}) {
+  return (
+    <div className="card map-quests">
+      <div className="ov-head">
+        <h3>Квесты на карте ({quests.length})</h3>
+        <div className="mode small-mode">
+          <button className={scope === 'current' ? 'on' : ''} onClick={() => setScope('current')}>Текущие</button>
+          <button className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')}>Все</button>
+        </div>
+      </div>
+      <p className="muted small">Нажмите на квест — карта покажет его точки. Нажмите на булавку на карте — откроется квест здесь.</p>
+      {quests.length === 0 && <div className="muted small">{scope === 'current' ? 'Текущих квестов с точками на этой карте нет. Переключитесь на «Все».' : 'Квестов с точками на этой карте нет.'}</div>}
+      <div className="mq-list">
+        {quests.map(({ task, objs }) => {
+          const on = selected === task.id;
+          const keys = objs.flatMap((o) => o.keys);
+          const plant = objs.flatMap((o) => o.plant);
+          const markers = objs.map((o) => o.marker).filter(Boolean) as string[];
+          return (
+            <div key={task.id} id={'mq-' + task.id} className={`mq ${on ? 'on' : ''} ${done[task.id] ? 'done' : ''}`}>
+              <button className="mq-head" onClick={() => onSelect(on ? null : task.id)}>
+                <i className="q-pin" />
+                <span className="grow"><b>{task.name}</b><span className="muted small"> · {task.trader}{task.loyalty > 1 ? ` ЛЛ${task.loyalty}` : ''} · ур. {task.minPlayerLevel}</span></span>
+                <span className="muted small">{objs.reduce((n, o) => n + o.points.filter((p) => p.map).length, 0) ? '📍' : ''}</span>
+              </button>
+              {on && (
+                <div className="mq-body">
+                  <div className="small muted">Что сделать:</div>
+                  <ol className="small">
+                    {task.objectives.filter((o) => !o.optional).map((o) => (
+                      <li key={o.id} className={objs.includes(o) ? 'here' : ''}>
+                        <span className="obj-ico">{TYPE_ICON[o.type] || '•'}</span>{o.description}{o.count && o.count > 1 ? ` (×${o.count})` : ''}
+                        {objs.includes(o) && <span className="badge ll">на этой карте</span>}
+                      </li>
+                    ))}
+                  </ol>
+                  {(keys.length > 0 || markers.length > 0 || plant.length > 0) && (
+                    <div className="mq-items">
+                      {keys.map((alts, i) => <Need key={'k' + i} id={alts[0]} data={data} note={alts.length > 1 ? `или ещё ${alts.length - 1} вар.` : 'ключ'} />)}
+                      {markers.map((id, i) => <Need key={'m' + i} id={id} data={data} note="маркер" />)}
+                      {plant.map((id, i) => <Need key={'p' + i} id={id} data={data} note="заложить" />)}
+                    </div>
+                  )}
+                  <div className="mq-actions">
+                    <label className="small"><input type="checkbox" checked={!!done[task.id]} disabled={!canEdit} onChange={() => toggle(task.id)} /> Выполнено</label>
+                    {safeUrl(task.wikiLink) && <a className="link small" href={safeUrl(task.wikiLink)} target="_blank" rel="noreferrer">Гайд в Wiki ↗</a>}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Need({ id, data, note }: { id: string; data: any; note: string }) {
+  const it = data.items[id];
+  return (
+    <div className="need" title={it?.name}>
+      <Img src={it?.icon} alt="" size={32} />
+      <div className="small"><div>{it?.shortName || it?.name || id}</div><div className="muted">{note}{it?.price ? ` · ${rub(it.price)}` : ''}</div></div>
+    </div>
   );
 }

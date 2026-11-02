@@ -3,6 +3,7 @@
 // Поверх карты — выходы, спавны, точки квестов и ваша позиция. Колёсиком/щипком — масштаб, перетаскиванием — сдвиг.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Pos } from '../position';
+import { PinMark, QuestPin } from './Pin';
 
 type MapImage = {
   svg: string;              // файл в https://assets.tarkov.dev/maps/svg/
@@ -99,9 +100,11 @@ function useMapImage(cfg: MapImage | undefined, floor: string) {
 
 const FACTION: Record<string, string> = { pmc: '#5fbf6a', scav: '#d9b84a', shared: '#4fa3d9' };
 
-type QuestPoint = { x: number; z: number; label: string; type: string };
 
-export default function MapView({ map, track, show, quests = [] }: { map: any; track: Pos[]; show: Record<string, boolean>; quests?: QuestPoint[] }) {
+export default function MapView({ map, track, show, quests = [], selected, onSelect, focus }: {
+  map: any; track: Pos[]; show: Record<string, boolean>; quests?: QuestPin[];
+  selected?: string | null; onSelect?: (id: string | null) => void; focus?: { n: number; pts: [number, number][] } | null;
+}) {
   const cfg = IMAGES[ALIAS[map.normalizedName] || map.normalizedName];
   const [floor, setFloor] = useState('');
   useEffect(() => setFloor(''), [map.id]);
@@ -126,6 +129,8 @@ export default function MapView({ map, track, show, quests = [] }: { map: any; t
   useEffect(() => setVb(full), [full]);
   const svgRef = useRef<SVGSVGElement>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const dragged = useRef(false);
+  const downAt = useRef<{ x: number; y: number } | null>(null);
   const k = vb.w / full.w; // 1 — вся карта; меньше — приближено
 
   const zoomAt = (factor: number, cx?: number, cy?: number) => {
@@ -150,11 +155,16 @@ export default function MapView({ map, track, show, quests = [] }: { map: any; t
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   });
-  const onDown = (e: React.PointerEvent) => { (e.target as Element).setPointerCapture?.(e.pointerId); pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY }); };
+  const onDown = (e: React.PointerEvent) => { pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY }); dragged.current = false; downAt.current = { x: e.clientX, y: e.clientY }; };
   const onUp = (e: React.PointerEvent) => { pointers.current.delete(e.pointerId); };
   const onMove = (e: React.PointerEvent) => {
     const prev = pointers.current.get(e.pointerId);
     if (!prev) return;
+    if (downAt.current && Math.hypot(e.clientX - downAt.current.x, e.clientY - downAt.current.y) > 5) {
+      if (!dragged.current) svgRef.current?.setPointerCapture?.(e.pointerId);
+      dragged.current = true;
+    }
+    if (!dragged.current && pointers.current.size === 1) return;
     const r = svgRef.current!.getBoundingClientRect();
     const s = Math.min(r.width / vb.w, r.height / vb.h);
     if (pointers.current.size === 1) {
@@ -168,6 +178,20 @@ export default function MapView({ map, track, show, quests = [] }: { map: any; t
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
   };
 
+  // Показать точки выбранного квеста: приближаем так, чтобы все поместились
+  useEffect(() => {
+    if (!focus?.pts.length) return;
+    const pr = focus.pts.map(([x, z]) => project(x, z));
+    const minX = Math.min(...pr.map((p) => p[0])), maxX = Math.max(...pr.map((p) => p[0]));
+    const minY = Math.min(...pr.map((p) => p[1])), maxY = Math.max(...pr.map((p) => p[1]));
+    const aspect = full.h / full.w;
+    let w = Math.max(full.w / 4, (maxX - minX) * 1.6, ((maxY - minY) * 1.6) / aspect);
+    w = Math.min(w, full.w);
+    const h = w * aspect;
+    setVb({ x: (minX + maxX) / 2 - w / 2, y: (minY + maxY) / 2 - h / 2, w, h });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.n]);
+
   const extracts = (map.extracts || []).filter((e: any) => e.position && show[e.faction] !== false);
   const spawns = show.spawns ? (map.spawns || []).filter((s: any) => s.position) : [];
   const last = track[track.length - 1];
@@ -177,7 +201,8 @@ export default function MapView({ map, track, show, quests = [] }: { map: any; t
   return (
     <div className="map-wrap">
       <svg ref={svgRef} viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`} className="map-svg map-real" role="img" aria-label={`Карта ${map.name}`}
-        onPointerDown={onDown} onPointerUp={onUp} onPointerCancel={onUp} onPointerMove={onMove}>
+        onPointerDown={onDown} onPointerUp={onUp} onPointerCancel={onUp} onPointerMove={onMove}
+        onClick={() => { if (!dragged.current && selected) onSelect?.(null); }}>
         <rect x={rect.x - rect.w} y={rect.y - rect.h} width={rect.w * 3} height={rect.h * 3} className="map-sea" />
         {url && <image href={url} x={rect.x} y={rect.y} width={rect.w} height={rect.h} preserveAspectRatio="none" />}
         {spawns.map((s: any, i: number) => { const [x, y] = project(s.position.x, s.position.z); return <circle key={'s' + i} cx={x} cy={y} r={3 * u} fill="#bbb" opacity={0.75} />; })}
@@ -190,14 +215,10 @@ export default function MapView({ map, track, show, quests = [] }: { map: any; t
             </g>
           );
         })}
-        {quests.map((q, i) => {
+        {/* Выбранный квест рисуем последним, чтобы его булавки были сверху */}
+        {[...quests].sort((a, b) => (a.taskId === selected ? 1 : 0) - (b.taskId === selected ? 1 : 0)).map((q, i) => {
           const [x, y] = project(q.x, q.z);
-          return (
-            <g key={'q' + i} className="q-mark">
-              <title>{q.label}</title>
-              <rect x={x - 5 * u} y={y - 5 * u} width={10 * u} height={10 * u} transform={`rotate(45 ${x} ${y})`} style={{ strokeWidth: 2 * u }} />
-            </g>
-          );
+          return <PinMark key={'q' + i} q={q} x={x} y={y} u={u} selected={selected} onSelect={(id) => { if (!dragged.current) onSelect?.(id); }} />;
         })}
         {track.length > 1 && <polyline fill="none" stroke="#d9573b" strokeOpacity={0.6} strokeDasharray={`${4 * u} ${4 * u}`} strokeWidth={2 * u}
           points={track.map((p) => project(p.x, p.z).join(',')).join(' ')} />}

@@ -367,3 +367,31 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 14px; }
 .map-floors { position: absolute; left: 10px; top: 10px; }
 .map-floors select { padding: 5px 8px; font-size: 13px; }
 .map-tools .btn.small { min-width: 34px; font-size: 16px; }
+
+/* Булавки квестов и список квестов карты */
+.pin { cursor: pointer; }
+.pin path { fill: #ff8a3d; stroke: #1a0f08; }
+.pin .pin-ico { fill: #1a0f08; text-anchor: middle; dominant-baseline: middle; font-weight: 700; pointer-events: none; }
+.pin.done path { fill: #6f8f73; }
+.pin.dim { opacity: .35; }
+.pin.on path { fill: #ffd25a; stroke: #fff; }
+.pin-label { fill: #fff; text-anchor: middle; font-weight: 700; paint-order: stroke; stroke: rgba(0,0,0,.9); stroke-linejoin: round; pointer-events: none; }
+.pin:hover path { filter: brightness(1.15); }
+.legend i.q-pin, .mq i.q-pin { width: 10px; height: 14px; display: inline-block; background: #ff8a3d;
+  clip-path: path('M5 14 C4 10 0 8 0 5 A5 5 0 1 1 10 5 C10 8 6 10 5 14 Z'); border-radius: 0; flex-shrink: 0; }
+.map-sel { margin-top: 8px; padding: 8px 10px; background: var(--info-bg); border-radius: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.map-sel .linkbtn { margin-left: auto; }
+.map-quests .mq-list { display: flex; flex-direction: column; gap: 4px; max-height: 560px; overflow: auto; margin-right: -6px; padding-right: 6px; }
+.mq { border: 1px solid var(--line); border-radius: 8px; scroll-margin: 60px; }
+.mq.on { border-color: #ffd25a; }
+.mq.done .mq-head b { text-decoration: line-through; color: var(--muted); }
+.mq-head { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: 0; color: var(--text); font: inherit; font-size: 14px; padding: 7px 9px; cursor: pointer; text-align: left; }
+.mq-head:hover { background: var(--panel2); }
+.mq-body { padding: 0 10px 10px; }
+.mq-body ol { padding-left: 18px; margin: 4px 0 8px; }
+.mq-body li { margin: 3px 0; } .mq-body li.here { color: var(--text); } .mq-body li:not(.here) { color: var(--muted); }
+.mq-items { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.need { display: flex; align-items: center; gap: 6px; background: var(--panel2); border-radius: 8px; padding: 4px 8px 4px 4px; }
+.mq-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mq-actions label { display: flex; align-items: center; gap: 6px; }
+.small-mode button { padding: 4px 10px; font-size: 12px; }
