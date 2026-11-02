@@ -24,6 +24,23 @@
 
 В версии для сайта и APK позицию можно отметить вручную: вставьте имя скриншота или координаты «x, y, z».
 
+## Аккаунты и прогресс (Supabase + Discord)
+Вход нужен только для синхронизации прогресса квестов между устройствами. Пускают только игроков из белого списка, остальной сайт открыт всем.
+Без входа прогресс хранится на устройстве, отдельно для PvP и PvE (`done:regular`, `done:pve`).
+
+**Настройка (один раз):**
+1. Создайте проект на supabase.com.
+2. В Discord Developer Portal (discord.com/developers/applications) создайте приложение → OAuth2. Скопируйте Client ID и Client Secret. В Redirects добавьте адрес `https://<ref>.supabase.co/auth/v1/callback` (его показывает Supabase на странице провайдера Discord).
+3. В Supabase: Authentication → Sign In / Providers → Discord: включите, вставьте Client ID и Secret.
+4. В Supabase: Authentication → URL Configuration: Site URL = `https://khan01m.github.io/TarkovHub/`, то же самое добавьте в Redirect URLs.
+5. В Supabase: SQL Editor → вставьте `supabase/setup.sql` → Run.
+6. Впишите игроков (Discord ID) прямо в SQL Editor, не в репозиторий:
+   `insert into allowed_players (discord_id, note) values ('123456789012345678', 'Игрок 1');`
+7. В `src/config.ts` впишите адрес проекта и publishable-ключ (Project Settings → API Keys). Секретный ключ не вписывать никогда.
+
+В EXE и APK вход не показывается: OAuth возвращает на сайт, поэтому синхронизация работает в браузере (на компьютере и на телефоне).
+Бесплатный проект Supabase приостанавливается после недели без активности; данные сохраняются, проект возобновляется кнопкой в панели Supabase. Пока он на паузе, сайт работает, а прогресс хранится на устройстве.
+
 ## Как получить APK и EXE (без установки чего-либо на компьютер)
 1. Создайте репозиторий на GitHub и загрузите туда эту папку.
 2. В репозитории откройте **Settings → Pages → Source: GitHub Actions**.
@@ -60,6 +77,8 @@ npm run android:sync # затем открыть папку android в Android S
 - `src/api.ts`: загрузка данных с json.tarkov.dev, перевод на русский и кэш
 - `src/position.ts`: разбор координат из имени скриншота
 - `src/guides.ts`: тексты гайдов
+- `src/auth.ts`, `src/progress.ts`, `src/config.ts`: вход через Discord и прогресс квестов
+- `supabase/setup.sql`: таблицы и правила доступа для Supabase
 - `electron/`: десктопная оболочка и интеграция с игрой
 - `.github/workflows/build.yml`: автосборка сайта, APK, EXE, DMG
 

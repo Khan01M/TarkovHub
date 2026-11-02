@@ -160,3 +160,15 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 14px; }
 .promo.used { opacity: .55; } .promo.used .promo-code { text-decoration: line-through; }
 .used-check { display: flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; }
 .badge.warn { background: #33291a; color: #e0b45a; } .badge.bad { background: #331c1a; color: var(--bad); }
+
+/* Вход и прогресс */
+.auth { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.auth .avatar { border-radius: 50%; }
+.auth-name { font-size: 13px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.auth-btn.btn.small { margin: 0; }
+.linkbtn { background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; padding: 0; text-decoration: underline; }
+.progress-panel { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.alert { background: #2a1d1b; border: 1px solid #4a2a26; border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+.alert.info { background: #22231b; border-color: #3d3b2a; }
+.alert .btn.small { margin: 8px 8px 0 0; }
+@media (max-width: 860px) { .auth-name { display: none; } }

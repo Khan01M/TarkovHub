@@ -8,6 +8,7 @@ import Maps from './pages/Maps';
 import Quests from './pages/Quests';
 import Guides from './pages/Guides';
 import Promo from './pages/Promo';
+import { useAuth, signIn, signOut } from './auth';
 
 const ROUTES: { id: string; label: string; short?: string; icon: string; el: () => JSX.Element }[] = [
   { id: 'home', label: 'Главная', icon: '⌂', el: Home },
@@ -49,7 +50,8 @@ export default function App() {
             <a key={r.id} href={`#/${r.id}`} className={r.id === current.id ? 'active' : ''}>{r.label}</a>
           ))}
         </nav>
-        <div className="mode" title="Режим игры: цены и данные отличаются">
+        <AuthButton />
+        <div className="mode" title="Режим игры: цены, квесты и прогресс отличаются">
           <button className={mode === 'regular' ? 'on' : ''} onClick={() => switchMode('regular')}>PvP</button>
           <button className={mode === 'pve' ? 'on' : ''} onClick={() => switchMode('pve')}>PvE</button>
         </div>
@@ -68,6 +70,24 @@ export default function App() {
         Данные: <a href="https://tarkov.dev" target="_blank" rel="noreferrer">tarkov.dev</a> (открытый API).
         Неофициальный фан-проект, не связан с Battlestate Games.
       </footer>
+    </div>
+  );
+}
+
+function AuthButton() {
+  const a = useAuth();
+  if (a.status === 'off' || a.status === 'app') return null;
+  if (a.status === 'loading') return <span className="auth muted small"><span className="spinner" /></span>;
+  if (a.status === 'signedOut' || (a.status === 'error' && !a.userId)) {
+    return <button className="btn small auth-btn" onClick={signIn} title={a.error || 'Вход для игроков из списка'}>Войти</button>;
+  }
+  return (
+    <div className="auth" title={a.status === 'denied' ? 'У этого аккаунта нет доступа' : a.status === 'error' ? a.error : 'Вы вошли'}>
+      {a.avatar && <img src={a.avatar} alt="" width={24} height={24} className="avatar" />}
+      <span className="auth-name">{a.name}</span>
+      {a.status === 'denied' && <span className="badge bad">нет доступа</span>}
+      {a.status === 'error' && <span className="badge bad">ошибка</span>}
+      <button className="linkbtn small" onClick={signOut}>Выйти</button>
     </div>
   );
 }
