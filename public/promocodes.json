@@ -1,0 +1,23 @@
+{
+  "updated": "2026-11-02",
+  "note": "Список ведётся вручную по открытым источникам. Коды одноразовые для аккаунта и работают только в указанном режиме. Battlestate Games может отключить любой код без предупреждения.",
+  "codes": [
+    { "code": "UNDEADTARKOV", "mode": "unknown", "status": "active", "added": "2026-10-30", "event": "Ивент с зомби (Хэллоуин)", "rewards": "Набор снаряжения" },
+    { "code": "PVEPRESTIGE", "mode": "pve", "status": "active", "added": "2026-10-06", "rewards": "Ящик с патронами и два ящика со снаряжением" },
+    { "code": "YYSTV", "mode": "pve", "status": "active", "added": "2026-10-06", "rewards": "HK 416A5, LV-119, шлем Bastion, наушники Sordin, рюкзак, 120 патронов M995" },
+    { "code": "POLYGON", "mode": "pve", "status": "active", "added": "2026-10-06", "rewards": "M60E6, LV-119, противогаз M53A1, шлем TC 800, рюкзак, 200 патронов M993" },
+    { "code": "AUTOMATON", "mode": "pve", "status": "active", "added": "2026-10-06", "rewards": "SIG MCX .300, Siege-R, шлем NeoSteel, ComTac VI, рюкзак, патроны .300 AP" },
+    { "code": "INVEN", "mode": "pve", "status": "check", "added": "2026-10-06", "rewards": "M1A, FCPC V5, шлем TC 800, ComTac V, рюкзак, 120 патронов M993", "noteText": "Объявлялся на две недели и мог закончиться" },
+    { "code": "WIPE", "mode": "season", "status": "active", "added": "2026-10-06", "rewards": "G36, АКС-74У, кейс для магазинов, бронежилет RBAV-AF, шлем Ronin, патроны" },
+    { "code": "GAMESPARK", "mode": "season", "status": "active", "rewards": "Снаряжение" },
+    { "code": "PCGAMESN", "mode": "season", "status": "active", "rewards": "Снаряжение" },
+    { "code": "ELVISVISTA", "mode": "pvp", "status": "active", "rewards": "Фигурка и два ёлочных украшения" },
+    { "code": "PAY2WIN", "mode": "pvp", "status": "active", "rewards": "Дробовик ТОЗ-106, пистолет, шлем, рюкзак, патроны" },
+    { "code": "LIGHTSOUT", "mode": "pvp", "status": "active", "rewards": "6 энергосберегающих ламп" },
+    { "code": "SCAVYBOI", "mode": "pvp", "status": "check", "rewards": "50 000 ₽, виски, «Алёнка», болты, гайки, топливо и др." },
+    { "code": "GOONSQUAD", "mode": "pvp", "status": "check", "rewards": "50 000 ₽, KEKTAPE ×2, топливо, болты и др." },
+    { "code": "SBEUKOMAR", "mode": "pvp", "status": "check", "rewards": "50 000 ₽, сухпаёк «Искра», сгущёнка, гофрошланги ×2 и др." },
+    { "code": "BACKTORAID", "mode": "pvp", "status": "check", "rewards": "Снаряжение" },
+    { "code": "SUDAKTUDAK", "mode": "pvp", "status": "check", "rewards": "Набор «Судак-Тудак»" }
+  ]
+}

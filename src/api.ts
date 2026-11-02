@@ -70,7 +70,7 @@ const done = new Map<string, Promise<any>>();
 
 /** Загружает данные через loader с кэшем. Без сети отдаёт последний сохранённый результат. */
 export function load<T>(name: string, loader: () => Promise<T>): Promise<T> {
-  const key = `data:v2:${name}:${getGameMode()}`;
+  const key = `data:v3:${name}:${getGameMode()}`;
   if (done.has(key)) return done.get(key)!;
   const fresh = cacheGet(key);
   if (fresh) return Promise.resolve(fresh);
@@ -87,11 +87,23 @@ export function load<T>(name: string, loader: () => Promise<T>): Promise<T> {
 }
 
 // ---------- торговцы ----------
-async function traderNames(): Promise<Record<string, string>> {
+export type TraderInfo = { name: string; order: number; levels: { level: number; playerLevel: number; reputation: number }[] };
+
+async function traderInfo(): Promise<Record<string, TraderInfo>> {
   const { data, ru } = await dataset('traders');
-  const out: Record<string, string> = {};
-  for (const t of Object.values<any>(data)) out[t.id] = tr(ru, t.name);
+  const out: Record<string, TraderInfo> = {};
+  Object.values<any>(data).forEach((t, i) => {
+    out[t.id] = {
+      name: tr(ru, t.name), order: i,
+      levels: (t.levels || []).map((l: any) => ({ level: l.level, playerLevel: l.requiredPlayerLevel || 1, reputation: l.requiredReputation || 0 })),
+    };
+  });
   return out;
+}
+
+async function traderNames(): Promise<Record<string, string>> {
+  const info = await traderInfo();
+  return Object.fromEntries(Object.entries(info).map(([id, t]) => [id, t.name]));
 }
 
 // ---------- предметы ----------
@@ -202,13 +214,19 @@ export const loadMaps = () => load<{ maps: MapInfo[]; bosses: Boss[] }>('maps', 
 export type Task = {
   id: string; name: string; minPlayerLevel: number; kappaRequired: boolean; experience?: number; wikiLink?: string;
   trader: string; map: string | null; objectives: { description: string; optional: boolean }[]; requires: string[];
+  /** Уровень лояльности у своего торговца, с которого квест становится доступен */
+  loyalty: number;
+  /** Прочие требования к торговцам: «Лыжник ЛЛ2», «репутация у Лыжника ≥ 0,2» */
+  traderReqs: string[];
 };
 
-export const loadTasks = () => load<{ tasks: Task[] }>('tasks', async () => {
+export const loadTasks = () => load<{ tasks: Task[]; traders: TraderInfo[] }>('tasks', async () => {
   const mode = getGameMode();
-  const [{ data, ru }, traders, mapsRu] = await Promise.all([
-    dataset('tasks'), traderNames(), getJson(`${mode}/maps_ru`).then((d) => d?.data ?? {}).catch(() => ({})),
+  const [{ data, ru }, info, mapsRu] = await Promise.all([
+    dataset('tasks'), traderInfo(), getJson(`${mode}/maps_ru`).then((d) => d?.data ?? {}).catch(() => ({})),
   ]);
+  const traders: Record<string, string> = Object.fromEntries(Object.entries(info).map(([id, t]) => [id, t.name]));
+  const fmt = (n: number) => new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(n);
   const all: Record<string, any> = data.tasks || {};
   const tasks: Task[] = Object.values<any>(all).map((t) => ({
     id: t.id, name: tr(ru, t.name), minPlayerLevel: t.minPlayerLevel || 1, kappaRequired: !!t.kappaRequired,
@@ -216,8 +234,19 @@ export const loadTasks = () => load<{ tasks: Task[] }>('tasks', async () => {
     map: t.map ? (mapsRu[`${t.map} Name`] ?? null) : null,
     objectives: (t.objectives || []).map((o: any) => ({ description: tr(ru, o.description), optional: !!o.optional })),
     requires: (t.taskRequirements || []).map((r: any) => (all[r.task] ? tr(ru, all[r.task].name) : '')).filter(Boolean),
+    loyalty: Math.max(1, ...(t.traderRequirements || [])
+      .filter((r: any) => r.requirementType === 'level' && r.trader === t.trader).map((r: any) => Number(r.value) || 1)),
+    traderReqs: (t.traderRequirements || [])
+      .filter((r: any) => !(r.requirementType === 'level' && r.trader === t.trader))
+      .map((r: any) => {
+        const name = traders[r.trader] || '?';
+        if (r.requirementType === 'level') return `${name}: ЛЛ${r.value}`;
+        if (r.requirementType === 'reputation') return `репутация у торговца ${name} ${r.compareMethod} ${fmt(Number(r.value))}`;
+        return '';
+      }).filter(Boolean),
   }));
-  return { tasks };
+  const traderList = Object.values(info).sort((a, b) => a.order - b.order);
+  return { tasks, traders: traderList };
 });
 
 // ---------- форматирование ----------

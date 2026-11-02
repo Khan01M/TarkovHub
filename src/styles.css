@@ -142,3 +142,21 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 14px; }
   .stats { grid-template-columns: repeat(2, 1fr); }
   h1 { font-size: 22px; }
 }
+
+/* Квесты по уровням лояльности */
+.ll-group { margin: 18px 0 8px; }
+.ll-head { display: flex; align-items: center; gap: 10px; padding: 6px 2px 8px; border-bottom: 1px solid var(--line); margin-bottom: 8px; position: sticky; top: 52px; background: var(--bg); z-index: 2; }
+.ll-num { font-weight: 800; font-size: 15px; color: #15130d; background: var(--accent); border-radius: 6px; padding: 2px 9px; }
+.badge.ll { background: #2a2420; color: #e0a36a; }
+@media (max-width: 860px) { .ll-head { top: 50px; } }
+
+/* Промокоды */
+.howto { margin-bottom: 12px; } .howto summary { cursor: pointer; } .howto ol { margin: 10px 0 6px; padding-left: 20px; }
+.promo { display: flex; flex-direction: column; gap: 8px; }
+.promo-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.promo-code { font: 700 18px/1.2 ui-monospace, Consolas, monospace; color: var(--accent); letter-spacing: .5px; word-break: break-all; user-select: all; }
+.promo-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.promo .btn.small { margin: 0; }
+.promo.used { opacity: .55; } .promo.used .promo-code { text-decoration: line-through; }
+.used-check { display: flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; }
+.badge.warn { background: #33291a; color: #e0b45a; } .badge.bad { background: #331c1a; color: var(--bad); }

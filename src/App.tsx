@@ -7,14 +7,16 @@ import Bosses from './pages/Bosses';
 import Maps from './pages/Maps';
 import Quests from './pages/Quests';
 import Guides from './pages/Guides';
+import Promo from './pages/Promo';
 
-const ROUTES: { id: string; label: string; icon: string; el: () => JSX.Element }[] = [
+const ROUTES: { id: string; label: string; short?: string; icon: string; el: () => JSX.Element }[] = [
   { id: 'home', label: 'Главная', icon: '⌂', el: Home },
   { id: 'market', label: 'Барахолка', icon: '₽', el: Market },
   { id: 'weapons', label: 'Оружие', icon: '⌖', el: Weapons },
   { id: 'bosses', label: 'Боссы', icon: '☠', el: Bosses },
   { id: 'maps', label: 'Карты', icon: '◈', el: Maps },
   { id: 'quests', label: 'Квесты', icon: '✓', el: Quests },
+  { id: 'promo', label: 'Промокоды', short: 'Коды', icon: '★', el: Promo },
   { id: 'guides', label: 'Гайды', icon: '☰', el: Guides },
 ];
 
@@ -58,7 +60,7 @@ export default function App() {
       <nav className="tabbar">
         {ROUTES.slice(1).map((r) => (
           <a key={r.id} href={`#/${r.id}`} className={r.id === current.id ? 'active' : ''}>
-            <span className="ti">{r.icon}</span><span>{r.label}</span>
+            <span className="ti">{r.icon}</span><span>{r.short || r.label}</span>
           </a>
         ))}
       </nav>
