@@ -1,0 +1,56 @@
+{
+  "name": "tarkov-hub",
+  "productName": "Tarkov Hub",
+  "version": "1.0.0",
+  "description": "Справочник по Escape from Tarkov: барахолка, оружие, боссы, карты, квесты, гайды",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "electron": "electron .",
+    "dist:win": "npm run build && electron-builder --win portable nsis",
+    "dist:mac": "npm run build && electron-builder --mac dmg",
+    "dist:linux": "npm run build && electron-builder --linux AppImage",
+    "android:sync": "npm run build && npx cap sync android"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^6.1.2",
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0",
+    "typescript": "^5.6.3",
+    "vite": "^8.3.5"
+  },
+  "build": {
+    "appId": "kz.tarkovhub.app",
+    "productName": "Tarkov Hub",
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "artifactName": "TarkovHub-${version}-${arch}-${target}.${ext}"
+    },
+    "mac": {
+      "category": "public.app-category.games",
+      "artifactName": "TarkovHub-${version}-${arch}.${ext}"
+    },
+    "linux": {
+      "category": "Game"
+    }
+  }
+}

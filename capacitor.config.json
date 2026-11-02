@@ -1,0 +1,6 @@
+{
+  "appId": "kz.tarkovhub.app",
+  "appName": "Tarkov Hub",
+  "webDir": "dist",
+  "android": { "allowMixedContent": false }
+}
