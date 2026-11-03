@@ -440,3 +440,6 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 14px; }
   .im-prices { grid-template-columns: 1fr; gap: 4px; }
 }
 .stat b .pen { font-size: 16px; color: #111; } .stat b .pen.pen0 { color: #eee; }
+.tip.warn { border-left-color: var(--accent2); background: color-mix(in srgb, var(--accent2) 12%, transparent); }
+.guide-meta { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+.guide-links { list-style: none; padding-left: 0; } .guide-links li { margin: 6px 0; }
