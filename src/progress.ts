@@ -1,4 +1,5 @@
 // Прогресс квестов: отдельно для PvP (regular) и PvE.
+// Ключи: id квеста; «o:<id цели>» — выполненная цель квеста; «h:<id уровня>» — построенный уровень модуля убежища.
 // Без входа — localStorage на устройстве (ключи done:regular и done:pve).
 // После входа игрока из списка — таблица quest_progress в Supabase (строка = квест выполнен).
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -143,11 +144,27 @@ export function useProgress(mode: GameMode) {
     else save(id, value);
   }, [mode, account, save]);
 
+  /** Задать сразу несколько отметок (например, уровни модуля убежища) */
+  const setMarks = useCallback((changes: Record<string, boolean>) => {
+    const n = { ...doneRef.current };
+    const real: [string, boolean][] = [];
+    for (const [id, v] of Object.entries(changes)) {
+      if (!!n[id] === v) continue;
+      if (v) n[id] = true; else delete n[id];
+      real.push([id, v]);
+    }
+    if (!real.length) return;
+    doneRef.current = n;
+    setDone(n);
+    if (!account) writeLocal(mode, n);
+    else for (const [id, v] of real) save(id, v);
+  }, [mode, account, save]);
+
   const retry = useCallback(() => {
     for (const [id, v] of Object.entries(unsaved)) save(id, v);
   }, [unsaved, save]);
 
-  return { done, toggle, source, loading, loadError, unsaved, saveError, retry, reload, auth };
+  return { done, toggle, setMarks, source, loading, loadError, unsaved, saveError, retry, reload, auth };
 }
 
 // ---------- команда: прогресс друг друга (только просмотр) ----------

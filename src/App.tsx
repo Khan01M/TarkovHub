@@ -9,6 +9,7 @@ import Quests from './pages/Quests';
 import Guides from './pages/Guides';
 import Promo from './pages/Promo';
 import Overview from './pages/Overview';
+import Hideout from './pages/Hideout';
 import { useAuth, signIn, signOut } from './auth';
 import { THEMES, getTheme, setTheme, ThemeId } from './theme';
 
@@ -20,7 +21,9 @@ const ROUTES: { id: string; label: string; short?: string; icon: string; el: () 
   { id: 'bosses', label: 'Боссы', icon: '☠', el: Bosses },
   { id: 'maps', label: 'Карты', icon: '◈', el: Maps },
   { id: 'quests', label: 'Квесты', icon: '✓', el: Quests },
-  { id: 'promo', label: 'Промокоды', short: 'Коды', icon: '★', el: Promo },
+  { id: 'hideout', label: 'Убежище', icon: '▣', el: Hideout },
+  // Промокоды на телефоне — с главной, чтобы нижняя панель не была тесной
+  { id: 'promo', label: 'Промокоды', short: 'Коды', icon: '★', el: Promo, noTab: true },
   { id: 'guides', label: 'Гайды', icon: '☰', el: Guides, noTab: true },
 ];
 

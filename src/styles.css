@@ -443,3 +443,54 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 14px; }
 .tip.warn { border-left-color: var(--accent2); background: color-mix(in srgb, var(--accent2) 12%, transparent); }
 .guide-meta { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
 .guide-links { list-style: none; padding-left: 0; } .guide-links li { margin: 6px 0; }
+
+/* ---------- Цели квестов ---------- */
+.objs { list-style: none; padding: 0; margin: 4px 0 8px; display: flex; flex-direction: column; gap: 4px; }
+.objs li { display: flex; align-items: flex-start; gap: 8px; }
+.objs label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; flex: 1; }
+.objs input { margin-top: 3px; flex: none; }
+.objs li.on span { color: var(--muted); text-decoration: line-through; }
+.badge.fir { background: #1f2b22; color: #7fc58a; margin-left: 6px; }
+.obj-count { color: var(--accent); }
+
+/* ---------- Убежище ---------- */
+.hd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+.hd-card { display: flex; flex-direction: column; gap: 10px; }
+.hd-card.max { opacity: .75; }
+.hd-head { display: flex; align-items: center; gap: 10px; }
+.hd-head img { border-radius: 8px; background: var(--sunken); object-fit: contain; }
+.hd-levels { display: flex; gap: 4px; flex-wrap: wrap; }
+.hd-levels button { min-width: 36px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+.hd-levels button.past { color: var(--text); border-color: var(--accent); }
+.hd-levels button.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.hd-levels button:disabled { opacity: .5; cursor: default; }
+.hd-next { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.hd-reqs { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag.ok { color: var(--good, #7fc58a); border-color: currentColor; } .tag.no { color: var(--bad); border-color: currentColor; }
+.hd-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.hd-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; color: inherit; font: inherit; font-size: 13px; cursor: pointer; text-align: left; min-width: 0; }
+.hd-item .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hd-item:hover { border-color: var(--accent); }
+.hd-item.got { border-color: #4f8a5a; }
+.need.got { opacity: .6; }
+.need-img { background: none; border: 0; padding: 0; cursor: pointer; }
+.need .grow { cursor: pointer; }
+.have { display: flex; align-items: center; gap: 4px; flex: none; }
+.have button { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); font: inherit; font-size: 16px; cursor: pointer; }
+.have button:disabled { opacity: .4; }
+.have input { width: 46px; height: 30px; text-align: center; border-radius: 8px; border: 1px solid var(--line); background: var(--sunken); color: var(--text); font: inherit; }
+.have .small { min-width: 52px; text-align: right; }
+.choice { display: flex; flex-direction: column; gap: 4px; }
+.choice-items { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.choice-item { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 2px; cursor: pointer; }
+@media (max-width: 640px) {
+  .hd-grid { grid-template-columns: 1fr; }
+  .need .row-main { flex-wrap: wrap; }
+  .have { margin-left: auto; }
+}
+.card.need { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+.card.need .row-main { display: flex; align-items: center; gap: 10px; }
+.card.need .details { width: 100%; }
+@media (max-width: 640px) {
+  .card.need .row-main .grow { flex: 1 1 160px; }
+}

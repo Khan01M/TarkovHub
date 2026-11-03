@@ -75,6 +75,8 @@ export default function Quests() {
   const doneCount = tasks.filter((t) => done[t.id]).length;
   const modeLabel = mode === 'pve' ? 'PvE' : 'PvP';
 
+  const objDone = (t: (typeof tasks)[number]) => t.objectives.filter((o) => done['o:' + o.id]).length;
+
   const card = (t: (typeof tasks)[number]) => (
     <div key={t.id} className={`card quest ${done[t.id] ? 'done' : ''}`}>
       <div className="row-main" onClick={() => setOpen(open === t.id ? null : t.id)}>
@@ -92,13 +94,29 @@ export default function Quests() {
             </div>
           )}
           <div className="muted small">
+            {!done[t.id] && objDone(t) > 0 && t.objectives.length > 1 && <span className="obj-count">целей {objDone(t)}/{t.objectives.length} · </span>}
             {byLoyalty ? '' : `${t.trader} · `}{t.map || 'любая карта'} · ур. {t.minPlayerLevel}{t.experience ? ` · ${num(t.experience)} опыта` : ''}
           </div>
         </div>
       </div>
       {open === t.id && (
         <div className="details">
-          <ol>{t.objectives.map((o, i) => <li key={i}>{o.description}{o.optional ? ' (необязательно)' : ''}</li>)}</ol>
+          <ul className="objs">
+            {t.objectives.map((o) => {
+              const k = 'o:' + o.id;
+              const on = !!done[t.id] || !!done[k];
+              return (
+                <li key={o.id} className={on ? 'on' : ''}>
+                  <label>
+                    <input type="checkbox" checked={on} disabled={progress.loading || readOnly || !!done[t.id]} onChange={() => toggle(k)} />
+                    <span>{o.description}{o.optional ? ' (необязательно)' : ''}{o.give?.fir ? <span className="badge fir" title="Только найденное в рейде">FiR</span> : null}</span>
+                  </label>
+                  {k in unsaved && <span className="badge bad">не сохранено</span>}
+                </li>
+              );
+            })}
+          </ul>
+          {!done[t.id] && !readOnly && t.objectives.length > 1 && <div className="muted small">Отмечайте цели по мере выполнения — квест целиком отмечается галочкой в заголовке.</div>}
           {t.loyalty > 1 && <div className="muted small">Нужен уровень лояльности {t.loyalty} у торговца {t.trader}</div>}
           {t.traderReqs.length > 0 && <div className="muted small">Ещё нужно: {t.traderReqs.join(', ')}</div>}
           {t.requires.length > 0 && <div className="muted small">Сначала выполнить: {t.requires.join(', ')}</div>}

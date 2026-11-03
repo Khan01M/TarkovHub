@@ -73,7 +73,7 @@ const done = new Map<string, Promise<any>>();
 
 /** Загружает данные через loader с кэшем. Без сети отдаёт последний сохранённый результат. */
 export function load<T>(name: string, loader: () => Promise<T>): Promise<T> {
-  const key = `data:v6:${name}:${getGameMode()}`;
+  const key = `data:v7:${name}:${getGameMode()}`;
   if (done.has(key)) return done.get(key)!;
   const fresh = cacheGet(key);
   if (fresh) return Promise.resolve(fresh);
@@ -244,9 +244,11 @@ export const loadMaps = () => load<{ maps: MapInfo[]; bosses: Boss[] }>('maps', 
 });
 
 // ---------- квесты ----------
+/** give — что сдать: любой из items, count штук; fir — только найденное в рейде */
+export type TaskObjective = { id: string; description: string; optional: boolean; give?: { items: string[]; count: number; fir: boolean } };
 export type Task = {
   id: string; name: string; minPlayerLevel: number; kappaRequired: boolean; experience?: number; wikiLink?: string;
-  trader: string; map: string | null; objectives: { description: string; optional: boolean }[]; requires: string[];
+  trader: string; map: string | null; objectives: TaskObjective[]; requires: string[];
   /** Уровень лояльности у своего торговца, с которого квест становится доступен */
   loyalty: number;
   /** Прочие требования к торговцам: «Лыжник ЛЛ2», «репутация у Лыжника ≥ 0,2» */
@@ -265,7 +267,11 @@ export const loadTasks = () => load<{ tasks: Task[]; traders: TraderInfo[] }>('t
     id: t.id, name: tr(ru, t.name), minPlayerLevel: t.minPlayerLevel || 1, kappaRequired: !!t.kappaRequired,
     experience: t.experience, wikiLink: t.wikiLink, trader: traders[t.trader] || '',
     map: t.map ? (mapsRu[`${t.map} Name`] ?? null) : null,
-    objectives: (t.objectives || []).map((o: any) => ({ description: tr(ru, o.description), optional: !!o.optional })),
+    objectives: (t.objectives || []).map((o: any): TaskObjective => ({
+      id: o.id, description: tr(ru, o.description), optional: !!o.optional,
+      give: o.type === 'giveItem' && (o.items || []).length && o.count > 0
+        ? { items: o.items.slice(0, 60), count: o.count, fir: !!o.foundInRaid } : undefined,
+    })),
     requires: (t.taskRequirements || []).map((r: any) => (all[r.task] ? tr(ru, all[r.task].name) : '')).filter(Boolean),
     loyalty: Math.max(1, ...(t.traderRequirements || [])
       .filter((r: any) => r.requirementType === 'level' && r.trader === t.trader).map((r: any) => Number(r.value) || 1)),
@@ -280,6 +286,33 @@ export const loadTasks = () => load<{ tasks: Task[]; traders: TraderInfo[] }>('t
   }));
   const traderList = Object.values(info).sort((a, b) => a.order - b.order);
   return { tasks, traders: traderList };
+});
+
+// ---------- убежище ----------
+export type HideoutLevel = {
+  id: string; level: number; time: number;
+  items: { id: string; count: number; fir: boolean }[];
+  stations: { id: string; level: number }[];
+  traders: { name: string; level: number }[];
+  skills: { name: string; level: number }[];
+};
+export type Station = { id: string; name: string; image?: string; levels: HideoutLevel[] };
+
+export const loadHideout = () => load<{ stations: Station[] }>('hideout', async () => {
+  const [{ data, ru }, info] = await Promise.all([dataset('hideout'), traderInfo()]);
+  const list: any[] = Array.isArray(data) ? data : Object.values(data || {});
+  const stations: Station[] = list.map((s) => ({
+    id: s.id, name: tr(ru, s.name), image: s.imageLink,
+    levels: (s.levels || []).map((l: any) => ({
+      id: l.id, level: l.level, time: l.constructionTime || 0,
+      items: (l.itemRequirements || []).map((r: any) => ({ id: r.item, count: r.count, fir: !!r.attributes?.foundInRaid })),
+      stations: (l.stationLevelRequirements || []).map((r: any) => ({ id: r.station, level: r.level })),
+      traders: (l.traderRequirements || []).filter((r: any) => r.requirementType === 'level')
+        .map((r: any) => ({ name: info[r.trader]?.name || '?', level: Number(r.value) || 1 })),
+      skills: (l.skillRequirements || []).map((r: any) => ({ name: tr(ru, r.skill), level: r.level })),
+    })).sort((a: HideoutLevel, b: HideoutLevel) => a.level - b.level),
+  })).filter((s) => s.levels.length).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  return { stations };
 });
 
 // ---------- форматирование ----------
