@@ -1,7 +1,8 @@
 {
-  "updated": "2026-11-02",
+  "updated": "2026-11-05",
   "note": "Список ведётся вручную по открытым источникам. Коды одноразовые для аккаунта и работают только в указанном режиме. Battlestate Games может отключить любой код без предупреждения.",
   "codes": [
+    { "code": "TARKOVHALLOWEEN", "mode": "unknown", "status": "check", "added": "2026-11-05", "event": "Хэллоуин 2026", "rewards": "Не уточнено — код прислал игрок, проверьте в лаунчере" },
     { "code": "UNDEADTARKOV", "mode": "unknown", "status": "active", "added": "2026-10-30", "event": "Ивент с зомби (Хэллоуин)", "rewards": "Набор снаряжения" },
     { "code": "PVEPRESTIGE", "mode": "pve", "status": "active", "added": "2026-10-06", "rewards": "Ящик с патронами и два ящика со снаряжением" },
     { "code": "YYSTV", "mode": "pve", "status": "active", "added": "2026-10-06", "rewards": "HK 416A5, LV-119, шлем Bastion, наушники Sordin, рюкзак, 120 патронов M995" },
