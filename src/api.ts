@@ -73,7 +73,7 @@ const done = new Map<string, Promise<any>>();
 
 /** Загружает данные через loader с кэшем. Без сети отдаёт последний сохранённый результат. */
 export function load<T>(name: string, loader: () => Promise<T>): Promise<T> {
-  const key = `data:v7:${name}:${getGameMode()}`;
+  const key = `data:v8:${name}:${getGameMode()}`;
   if (done.has(key)) return done.get(key)!;
   const fresh = cacheGet(key);
   if (fresh) return Promise.resolve(fresh);
@@ -249,6 +249,16 @@ export type TaskObjective = { id: string; description: string; optional: boolean
 export type Task = {
   id: string; name: string; minPlayerLevel: number; kappaRequired: boolean; experience?: number; wikiLink?: string;
   trader: string; map: string | null; objectives: TaskObjective[]; requires: string[];
+  /** Предыдущие квесты: id и нужный статус (complete — выполнен, active — взят, failed — провален) */
+  reqs: { id: string; status: string[] }[];
+  /** С 1.1.0 квесты открываются пачками: счётчик ветки торговца (id) и нужное значение */
+  gate?: { v: string; n: number };
+  /** Только для BEAR или USEC; для всех — не задано */
+  faction?: 'BEAR' | 'USEC';
+  /** Квест только при отрицательной репутации (ветка «Возмещение ущерба» у Скупщика) */
+  badRep?: boolean;
+  /** Квест, который открывает этого торговца (Егерь — «Поручение»), если торговец закрыт с начала */
+  traderUnlock?: string;
   /** Уровень лояльности у своего торговца, с которого квест становится доступен */
   loyalty: number;
   /** Прочие требования к торговцам: «Лыжник ЛЛ2», «репутация у Лыжника ≥ 0,2» */
@@ -263,6 +273,14 @@ export const loadTasks = () => load<{ tasks: Task[]; traders: TraderInfo[] }>('t
   const traders: Record<string, string> = Object.fromEntries(Object.entries(info).map(([id, t]) => [id, t.name]));
   const fmt = (n: number) => new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(n);
   const all: Record<string, any> = data.tasks || {};
+  // Каких торговцев открывает какой квест (например, Егеря — «Поручение» у Механика)
+  const unlockBy: Record<string, string> = {};
+  for (const t of Object.values<any>(all)) {
+    for (const u of [...(t.finishRewards?.traderUnlock || []), ...(t.startRewards?.traderUnlock || [])]) {
+      const id = typeof u === 'string' ? u : u?.id || u?.trader;
+      if (id && !unlockBy[id]) unlockBy[id] = t.id;
+    }
+  }
   const tasks: Task[] = Object.values<any>(all).map((t) => ({
     id: t.id, name: tr(ru, t.name), minPlayerLevel: t.minPlayerLevel || 1, kappaRequired: !!t.kappaRequired,
     experience: t.experience, wikiLink: t.wikiLink, trader: traders[t.trader] || '',
@@ -273,6 +291,11 @@ export const loadTasks = () => load<{ tasks: Task[]; traders: TraderInfo[] }>('t
         ? { items: o.items.slice(0, 60), count: o.count, fir: !!o.foundInRaid } : undefined,
     })),
     requires: (t.taskRequirements || []).map((r: any) => (all[r.task] ? tr(ru, all[r.task].name) : '')).filter(Boolean),
+    reqs: (t.taskRequirements || []).filter((r: any) => all[r.task]).map((r: any) => ({ id: r.task, status: r.status || ['complete'] })),
+    gate: ((g) => (g ? { v: g.variableId, n: Number(g.value) || 0 } : undefined))((t.otherRequirements || []).find((o: any) => o.type === 'globalVariable' && o.compareMethod === '>=')),
+    traderUnlock: unlockBy[t.trader] && unlockBy[t.trader] !== t.id ? unlockBy[t.trader] : undefined,
+    badRep: (t.traderRequirements || []).some((r: any) => r.requirementType === 'reputation' && (r.compareMethod === '<' || r.compareMethod === '<=') && Number(r.value) < 0),
+    faction: t.factionName === 'BEAR' || t.factionName === 'USEC' ? t.factionName : undefined,
     loyalty: Math.max(1, ...(t.traderRequirements || [])
       .filter((r: any) => r.requirementType === 'level' && r.trader === t.trader).map((r: any) => Number(r.value) || 1)),
     traderReqs: (t.traderRequirements || [])

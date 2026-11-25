@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useData, State, Img, safeUrl } from '../ui';
-import { getGameMode, rub } from '../api';
+import { getGameMode, rub, loadTasks } from '../api';
+import { questAvailability, guessLevel, guessLoyalty } from '../questAvail';
 import { useProgress } from '../progress';
 import { loadQuestData, currentTasks, QuestData, QuestTask, Gunsmith } from '../questdata';
 
-const levelKey = () => `playerLevel:${getGameMode()}`;
+// Уровень, лояльность и фракция — общие со страницей «Квесты»
+const levelKey = () => `questsLevel:${getGameMode()}`;
 const readLevel = () => { try { return Number(localStorage.getItem(levelKey())) || 0; } catch { return 0; } };
 
 const OBJ_ICON: Record<string, string> = {
@@ -19,7 +21,23 @@ export default function Overview() {
   const [level, setLevelState] = useState(readLevel);
   const setLevel = (v: number) => { setLevelState(v); try { localStorage.setItem(levelKey(), String(v || '')); } catch { /* ignore */ } };
 
-  const current = useMemo(() => (data ? currentTasks(data, progress.done, level || 999) : []), [data, progress.done, level]);
+  const tasksD = useData(loadTasks);
+  // Текущие = открытые сейчас у торговцев (как на странице «Квесты» в режиме «Открытые сейчас»)
+  const openIds = useMemo(() => {
+    const all = tasksD.data?.tasks;
+    if (!all) return null;
+    let ll: Record<string, number> = {}; let faction = '';
+    try { ll = JSON.parse(localStorage.getItem(`questsLL:${mode}`) || '{}') || {}; faction = localStorage.getItem('questsFaction') || ''; } catch { /* ignore */ }
+    const tasks = all.filter((t) => !faction || !t.faction || t.faction === faction);
+    const lv = level || guessLevel(tasks, progress.done);
+    const av = questAvailability(tasks, progress.done, lv, (tr) => ll[tr] || guessLoyalty(tasks, progress.done, tr));
+    return new Set(tasks.filter((t) => av[t.id].state === 'open').map((t) => t.id));
+  }, [tasksD.data, progress.done, level, mode]);
+  const current = useMemo(() => {
+    if (!data) return [];
+    const base = currentTasks(data, progress.done, level || 999);
+    return openIds ? base.filter((t) => openIds.has(t.id)) : base;
+  }, [data, progress.done, level, openIds]);
 
   return (
     <section>
@@ -30,7 +48,7 @@ export default function Overview() {
           <input className="search level-input" type="number" min={1} max={79} value={level || ''} placeholder="любой"
             onChange={(e) => setLevel(Math.max(0, Math.min(79, Number(e.target.value) || 0)))} />
         </label>
-        <span className="muted small">Текущие задания: те, что не выполнены и для которых выполнены все предыдущие{level ? ` и подходит уровень` : ''}. Уровень лояльности не учитывается.</span>
+        <span className="muted small">Текущие задания — те, что открыты сейчас у торговцев: по уровню, лояльности и выполненным квестам. Лояльность и фракция задаются на странице <a className="link" href="#/quests">Квесты</a>.</span>
       </div>
       <State loading={loading || progress.loading} error={error} />
       {data && (
@@ -40,7 +58,7 @@ export default function Overview() {
             <GoonTracker data={data} />
           </div>
           <Gunsmiths data={data} current={current} />
-          <RaidItems data={data} current={current} />
+          <RaidItems data={data} current={current} done={progress.done} />
           <CurrentList data={data} current={current} />
         </>
       )}
@@ -189,60 +207,127 @@ function GunsmithCard({ g, data, task, initiallyOpen }: { g: Gunsmith; data: Que
 }
 
 // ---------- Что взять в рейд ----------
-function RaidItems({ data, current }: { data: QuestData; current: QuestTask[] }) {
-  const maps = useMemo(() => {
-    const s = new Set<string>();
-    current.forEach((t) => t.objectives.forEach((o) => o.maps.forEach((m) => s.add(m))));
-    return [...s].filter((m) => data.mapNames[m]).sort((a, b) => data.mapNames[a].localeCompare(data.mapNames[b], 'ru'));
-  }, [data, current]);
-  const [map, setMap] = useState('');
-  const rows = useMemo(() => {
-    const keys: Record<string, string[]> = {}; const markers: Record<string, { n: number; tasks: string[] }> = {}; const plant: Record<string, { n: number; tasks: string[] }> = {};
-    for (const t of current) for (const o of t.objectives) {
-      if (map && !o.maps.includes(map)) continue;
-      for (const alts of o.keys) { const k = alts.join('|'); (keys[k] ||= []).includes(t.name) || keys[k].push(t.name); }
-      if (o.marker) { const r = (markers[o.marker] ||= { n: 0, tasks: [] }); r.n += o.count || 1; r.tasks.includes(t.name) || r.tasks.push(t.name); }
-      for (const p of o.plant) { const r = (plant[p] ||= { n: 0, tasks: [] }); r.n += o.count || 1; r.tasks.includes(t.name) || r.tasks.push(t.name); }
+type Need = { id: string; n: number; alts?: string[] };
+type TaskNeeds = { task: QuestTask; maps: string[]; keys: Need[]; markers: Need[]; plant: Need[] };
+
+/** Что нужно взять под каждое текущее задание, с картами. Выполненные цели не учитываются. */
+function taskNeeds(data: QuestData, current: QuestTask[], done: Record<string, boolean>): TaskNeeds[] {
+  const out: TaskNeeds[] = [];
+  for (const t of current) {
+    const r: TaskNeeds = { task: t, maps: [], keys: [], markers: [], plant: [] };
+    const add = (list: Need[], id: string, n: number, alts?: string[]) => {
+      const x = list.find((y) => y.id === id);
+      if (x) x.n += n; else list.push({ id, n, alts });
+    };
+    for (const o of t.objectives) {
+      if (done['o:' + o.id]) continue;
+      const before = r.keys.length + r.markers.length + r.plant.length;
+      for (const alts of o.keys) if (!r.keys.some((k) => k.id === alts[0])) r.keys.push({ id: alts[0], n: 1, alts: alts.slice(1) });
+      if (o.marker) add(r.markers, o.marker, o.count || 1);
+      for (const p of o.plant) add(r.plant, p, o.count || 1);
+      if (r.keys.length + r.markers.length + r.plant.length > before) for (const m of o.maps) if (data.mapNames[m] && !r.maps.includes(m)) r.maps.push(m);
     }
-    return { keys, markers, plant };
-  }, [current, map]);
-  const empty = !Object.keys(rows.keys).length && !Object.keys(rows.markers).length && !Object.keys(rows.plant).length;
-  const Row = ({ id, n, tasks }: { id: string; n?: number; tasks: string[] }) => {
+    if (r.keys.length || r.markers.length || r.plant.length) out.push(r);
+  }
+  return out;
+}
+
+function RaidItems({ data, current, done }: { data: QuestData; current: QuestTask[]; done: Record<string, boolean> }) {
+  const [by, setBy] = useState<'map' | 'quest'>(() => { try { return (localStorage.getItem('raidBy') as 'map' | 'quest') || 'map'; } catch { return 'map'; } });
+  const setByS = (v: 'map' | 'quest') => { setBy(v); try { localStorage.setItem('raidBy', v); } catch { /* ignore */ } };
+  const needs = useMemo(() => taskNeeds(data, current, done), [data, current, done]);
+  const ANY = '*';
+  // Карты с числом заданий, которым что-то нужно; «*» — задания без конкретной карты
+  const maps = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const r of needs) for (const m of r.maps.length ? r.maps : [ANY]) c[m] = (c[m] || 0) + 1;
+    return Object.entries(c).sort((a, b) => b[1] - a[1] || (data.mapNames[a[0]] || 'я').localeCompare(data.mapNames[b[0]] || 'я', 'ru'));
+  }, [needs, data]);
+  const [map, setMap] = useState('');
+  const activeMap = maps.some(([m]) => m === map) ? map : maps[0]?.[0] || '';
+  const mapName = (m: string) => (m === ANY ? 'Любая карта' : data.mapNames[m] || m);
+  const onMap = needs.filter((r) => (r.maps.length ? r.maps.includes(activeMap) : activeMap === ANY));
+  const [openQ, setOpenQ] = useState<string | null>(null);
+
+  // Итого на один рейд: ключи без повторов, маркеры и закладки суммой
+  const total = useMemo(() => {
+    const keys: Record<string, { alts?: string[]; tasks: string[] }> = {}, cnt: Record<string, { n: number; tasks: string[] }> = {};
+    for (const r of onMap) {
+      for (const k of r.keys) { const x = (keys[k.id] ||= { alts: k.alts, tasks: [] }); x.tasks.push(r.task.name); }
+      for (const k of [...r.markers, ...r.plant]) { const x = (cnt[k.id] ||= { n: 0, tasks: [] }); x.n += k.n; x.tasks.push(r.task.name); }
+    }
+    return { keys, cnt };
+  }, [onMap]);
+
+  const Row = ({ id, n, note, alts }: { id: string; n?: number; note?: string; alts?: string[] }) => {
     const it = data.items[id];
     return (
       <div className="raid-item">
-        <Img src={it?.icon} alt="" size={40} />
-        <div className="grow"><div>{it?.name || id}{n && n > 1 ? ` ×${n}` : ''}</div><div className="muted small">{tasks.join(', ')}</div></div>
+        <Img src={it?.icon} alt="" size={36} />
+        <div className="grow">
+          <div>{it?.name || id}{n && n > 1 ? <b> ×{n}</b> : ''}</div>
+          {alts && alts.length > 0 && <div className="muted small">или: {alts.map((a) => data.items[a]?.name || a).join(', ')}</div>}
+          {note && <div className="muted small">{note}</div>}
+        </div>
         {it?.price ? <span className="muted small">{rub(it.price)}</span> : null}
       </div>
     );
   };
+  const Items = ({ r }: { r: TaskNeeds }) => (
+    <>
+      {r.keys.map((k) => <Row key={'k' + k.id} id={k.id} alts={k.alts} note="ключ" />)}
+      {r.markers.map((k) => <Row key={'m' + k.id} id={k.id} n={k.n} note="маркер" />)}
+      {r.plant.map((k) => <Row key={'p' + k.id} id={k.id} n={k.n} note="заложить" />)}
+    </>
+  );
+
   return (
     <div className="card ov-block">
       <div className="ov-head">
         <h3>Что взять в рейд</h3>
-        <select value={map} onChange={(e) => setMap(e.target.value)} aria-label="Карта">
-          <option value="">Все карты</option>
-          {maps.map((m) => <option key={m} value={m}>{data.mapNames[m]}</option>)}
-        </select>
+        <div className="seg small-seg">
+          <button className={by === 'map' ? 'on' : ''} onClick={() => setByS('map')}>По локациям</button>
+          <button className={by === 'quest' ? 'on' : ''} onClick={() => setByS('quest')}>По квестам</button>
+        </div>
       </div>
-      {empty && <div className="muted small">Для текущих заданий{map ? ' на этой карте' : ''} ничего особенного брать не нужно.</div>}
-      <div className="raid-cols">
-        {Object.keys(rows.keys).length > 0 && (
-          <div><h4>Ключи</h4>
-            {Object.entries(rows.keys).map(([k, tasks]) => {
-              const alts = k.split('|');
-              return <div key={k}><Row id={alts[0]} tasks={tasks} />{alts.length > 1 && <div className="muted small alt-keys">или: {alts.slice(1).map((a) => data.items[a]?.name || a).join(', ')}</div>}</div>;
-            })}
+      {needs.length === 0 && <div className="muted small">Для текущих заданий ключи, маркеры и закладки не нужны.</div>}
+
+      {by === 'map' && needs.length > 0 && (
+        <>
+          <div className="chips">
+            {maps.map(([m, n]) => <button key={m} className={m === activeMap ? 'chip on' : 'chip'} onClick={() => setMap(m)}>{mapName(m)} <b>{n}</b></button>)}
           </div>
-        )}
-        {Object.keys(rows.markers).length > 0 && (
-          <div><h4>Маркеры</h4>{Object.entries(rows.markers).map(([id, r]) => <Row key={id} id={id} n={r.n} tasks={r.tasks} />)}</div>
-        )}
-        {Object.keys(rows.plant).length > 0 && (
-          <div><h4>Заложить</h4>{Object.entries(rows.plant).map(([id, r]) => <Row key={id} id={id} n={r.n} tasks={r.tasks} />)}</div>
-        )}
-      </div>
+          <div className="raid-total">
+            <h4>Взять на {mapName(activeMap)}</h4>
+            {Object.entries(total.keys).map(([id, x]) => <Row key={'k' + id} id={id} alts={x.alts} note={`ключ · ${x.tasks.join(', ')}`} />)}
+            {Object.entries(total.cnt).map(([id, x]) => <Row key={'c' + id} id={id} n={x.n} note={x.tasks.join(', ')} />)}
+          </div>
+          <h4>По заданиям на этой карте</h4>
+          <div className="raid-tasks">
+            {onMap.map((r) => (
+              <details key={r.task.id} className="raid-task">
+                <summary><b>{r.task.name}</b> <span className="muted small">· {r.task.trader} · {r.keys.length + r.markers.length + r.plant.length} предм.</span></summary>
+                <Items r={r} />
+              </details>
+            ))}
+          </div>
+        </>
+      )}
+
+      {by === 'quest' && needs.length > 0 && (
+        <div className="raid-tasks">
+          {needs.map((r) => (
+            <div key={r.task.id} className="raid-task">
+              <button className="raid-q" onClick={() => setOpenQ(openQ === r.task.id ? null : r.task.id)} aria-expanded={openQ === r.task.id}>
+                <span className="grow"><b>{r.task.name}</b> <span className="muted small">· {r.task.trader}</span></span>
+                <span className="muted small">{r.maps.length ? r.maps.map(mapName).join(', ') : 'любая карта'}</span>
+                <span className="small">{openQ === r.task.id ? '▲' : '▼'}</span>
+              </button>
+              {openQ === r.task.id && <Items r={r} />}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

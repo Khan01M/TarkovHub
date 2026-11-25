@@ -3,6 +3,7 @@ import { useData, State, Search, norm, safeUrl } from '../ui';
 import { num, loadTasks, getGameMode, GameMode } from '../api';
 import { useProgress, useTeam, Teammate, readLegacy, archiveLegacy, addLocal, readLocal, uploadMarks } from '../progress';
 import { signIn } from '../auth';
+import { questAvailability, guessLevel, guessLoyalty } from '../questAvail';
 
 function useStored(key: string, initial: string) {
   const [v, setV] = useState<string>(() => { try { return localStorage.getItem(key) || initial; } catch { return initial; } });
@@ -15,6 +16,8 @@ const fmt = (n: number) => new Intl.NumberFormat('ru-RU', { maximumFractionDigit
 export default function Quests() {
   const { data, error, loading } = useData(loadTasks);
   const [view, setView] = useStored('questsView', 'loyalty');
+  // open — только открытые сейчас (как у торговцев в игре), all — все квесты
+  const [scope, setScope] = useStored('questsScope', 'open');
   const [q, setQ] = useState('');
   const [trader, setTrader] = useStored('questsTrader', '');
   const [mapF, setMapF] = useState('');
@@ -39,23 +42,38 @@ export default function Quests() {
   }, [readOnly, viewed, myDone]);
   const others = team.team.filter((t) => t.userId !== (readOnly ? viewed!.userId : a.userId));
 
-  const tasks = data?.tasks || [];
+  // Уровень ЧВК и лояльность: свои — из настроек (или по выполненным квестам), у товарища — только по его квестам
+  const [lvlStr, setLvlStr] = useStored(`questsLevel:${mode}`, '');
+  const [llStr, setLlStr] = useStored(`questsLL:${mode}`, '{}');
+  const [faction, setFaction] = useStored('questsFaction', '');
+  const llMap: Record<string, number> = useMemo(() => { try { return JSON.parse(llStr) || {}; } catch { return {}; } }, [llStr]);
+
+  // Квесты только для другой фракции (BEAR/USEC) прячем, если фракция выбрана
+  const tasks = useMemo(() => (data?.tasks || []).filter((t) => !faction || !t.faction || t.faction === faction), [data, faction]);
+  const level = (!readOnly && Number(lvlStr)) || guessLevel(tasks, done);
+  const llOf = (tr: string) => (!readOnly && llMap[tr]) || guessLoyalty(tasks, done, tr);
+  const setLL = (tr: string, n: number) => setLlStr(JSON.stringify({ ...llMap, [tr]: n }));
+  const avail = useMemo(() => questAvailability(tasks, done, level, llOf), [tasks, done, level, llMap, readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  const onlyOpen = scope === 'open';
   // Торговцы в игровом порядке, только те, у кого есть квесты
   const traderInfo = useMemo(() => (data?.traders || []).filter((t) => tasks.some((x) => x.trader === t.name)), [data]);
   const traders = traderInfo.map((t) => t.name);
   const maps = useMemo(() => Array.from(new Set(tasks.map((t) => t.map).filter(Boolean))).sort() as string[], [tasks]);
 
   // В режиме «по лояльности» всегда выбран один торговец
-  const byLoyalty = view === 'loyalty';
-  const activeTrader = byLoyalty ? (traders.includes(trader) ? trader : traders[0] || '') : trader;
+  // В режиме «по лояльности» всегда выбран один торговец; в «открытых» можно выбрать и «все»
+  const byLoyalty = !onlyOpen && view === 'loyalty';
+  const activeTrader = byLoyalty ? (traders.includes(trader) ? trader : traders[0] || '') : (traders.includes(trader) ? trader : '');
+  const openCount = (tr: string) => tasks.filter((t) => (!tr || t.trader === tr) && avail[t.id]?.state === 'open').length;
 
   const list = useMemo(() => {
     const nq = norm(q);
     return tasks
       .filter((t) => (!activeTrader || t.trader === activeTrader) && (!mapF || t.map === mapF) && (!kappa || t.kappaRequired) && (!hideDone || !done[t.id]))
+      .filter((t) => !onlyOpen || avail[t.id]?.state === 'open')
       .filter((t) => !nq || norm(t.name).includes(nq) || t.objectives.some((o) => norm(o.description).includes(nq)))
       .sort((a, b) => a.loyalty - b.loyalty || a.minPlayerLevel - b.minPlayerLevel || a.name.localeCompare(b.name, 'ru'));
-  }, [tasks, q, activeTrader, mapF, kappa, hideDone, done]);
+  }, [tasks, q, activeTrader, mapF, kappa, hideDone, done, onlyOpen, avail]);
 
   const groups = useMemo(() => {
     if (!byLoyalty) return [];
@@ -86,6 +104,8 @@ export default function Quests() {
             {t.name} {t.kappaRequired && <span className="badge">Каппа</span>}
             {!byLoyalty && t.loyalty > 1 && <span className="badge ll">ЛЛ{t.loyalty}</span>}
             {t.id in unsaved && <span className="badge bad">не сохранено</span>}
+            {!onlyOpen && avail[t.id]?.state === 'open' && <span className="badge open">открыт</span>}
+            {!onlyOpen && avail[t.id]?.state === 'locked' && <span className="badge lock" title={avail[t.id].why.join('; ')}>🔒 закрыт</span>}
           </div>
           {others.some((o) => o.done.has(t.id)) && (
             <div className="also">
@@ -120,6 +140,8 @@ export default function Quests() {
           {t.loyalty > 1 && <div className="muted small">Нужен уровень лояльности {t.loyalty} у торговца {t.trader}</div>}
           {t.traderReqs.length > 0 && <div className="muted small">Ещё нужно: {t.traderReqs.join(', ')}</div>}
           {t.requires.length > 0 && <div className="muted small">Сначала выполнить: {t.requires.join(', ')}</div>}
+          {avail[t.id]?.state === 'locked' && <div className="small lock-why">🔒 Пока закрыт: {avail[t.id].why.join('; ')}{avail[t.id].estimated ? ' (оценка)' : ''}</div>}
+          {avail[t.id]?.estimated && avail[t.id].state === 'open' && <div className="small lock-why">Открытие по пачкам квестов (с патча 1.1.0) — сайт оценивает его по выполненным квестам торговца.</div>}
           {safeUrl(t.wikiLink) && <a className="link small" href={safeUrl(t.wikiLink)} target="_blank" rel="noreferrer">Подробный гайд в Wiki ↗</a>}
         </div>
       )}
@@ -142,28 +164,60 @@ export default function Quests() {
       {tasks.length > 0 && (
         <div className="progress"><div className="bar"><i style={{ width: `${(doneCount / tasks.length) * 100}%` }} /></div><span className="small">{readOnly ? `${viewed!.name}, ` : ''}{modeLabel}: выполнено {doneCount} из {tasks.length}</span></div>
       )}
-      <div className="tabs">
-        <button className={byLoyalty ? 'on' : ''} onClick={() => setView('loyalty')}>По уровням лояльности</button>
-        <button className={!byLoyalty ? 'on' : ''} onClick={() => setView('list')}>Списком</button>
+      <div className="seg scope">
+        <button className={onlyOpen ? 'on' : ''} onClick={() => setScope('open')}>Открытые сейчас <b>{openCount('')}</b></button>
+        <button className={!onlyOpen ? 'on' : ''} onClick={() => setScope('all')}>Все квесты <b>{tasks.length}</b></button>
       </div>
-      {byLoyalty && traders.length > 0 && (
-        <div className="chips">
-          {traders.map((t) => <button key={t} className={t === activeTrader ? 'chip on' : 'chip'} onClick={() => setTrader(t)}>{t}</button>)}
-        </div>
+      {onlyOpen ? (
+        <>
+          <div className="muted small">Как во вкладке «Задания» у торговцев: квесты, которые можно взять прямо сейчас, — по уровню ЧВК, лояльности и выполненным квестам.</div>
+          <div className="me-stats">
+            <label>Уровень ЧВК
+              <input type="number" min={1} max={79} value={level} disabled={readOnly} onChange={(e) => setLvlStr(String(Math.max(1, Math.min(79, Number(e.target.value) || 1))))} />
+            </label>
+            {activeTrader && (
+              <span className="ll-pick">ЛЛ у торговца {activeTrader}:
+                {[1, 2, 3, 4].map((n) => <button key={n} disabled={readOnly} className={llOf(activeTrader) === n ? 'on' : ''} onClick={() => setLL(activeTrader, n)}>{n}</button>)}
+              </span>
+            )}
+          </div>
+          <div className="me-stats">
+            <span className="ll-pick">Фракция:
+              {[['', 'обе'], ['BEAR', 'BEAR'], ['USEC', 'USEC']].map(([v, l]) => <button key={v} className={faction === v ? 'on wide' : 'wide'} onClick={() => setFaction(v)}>{l}</button>)}
+            </span>
+          </div>
+          {!readOnly && !lvlStr && <div className="muted small">Уровень и лояльность подобраны по выполненным квестам — поправьте, если в игре они выше.</div>}
+          <div className="chips">
+            <button className={!activeTrader ? 'chip on' : 'chip'} onClick={() => setTrader('')}>Все <b>{openCount('')}</b></button>
+            {traders.map((t) => <button key={t} className={t === activeTrader ? 'chip on' : 'chip'} onClick={() => setTrader(t)}>{t} <b>{openCount(t)}</b></button>)}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="tabs">
+            <button className={byLoyalty ? 'on' : ''} onClick={() => setView('loyalty')}>По уровням лояльности</button>
+            <button className={!byLoyalty ? 'on' : ''} onClick={() => setView('list')}>Списком</button>
+          </div>
+          {byLoyalty && traders.length > 0 && (
+            <div className="chips">
+              {traders.map((t) => <button key={t} className={t === activeTrader ? 'chip on' : 'chip'} onClick={() => setTrader(t)}>{t}</button>)}
+            </div>
+          )}
+        </>
       )}
       <div className="toolbar">
         <Search value={q} onChange={setQ} placeholder="Название квеста или предмет…" />
-        {!byLoyalty && (
+        {!byLoyalty && !onlyOpen && (
           <select value={trader} onChange={(e) => setTrader(e.target.value)}><option value="">Все торговцы</option>{traders.map((t) => <option key={t}>{t}</option>)}</select>
         )}
         <select value={mapF} onChange={(e) => setMapF(e.target.value)}><option value="">Все карты</option>{maps.map((m) => <option key={m}>{m}</option>)}</select>
       </div>
       <div className="chips">
         <button className={kappa ? 'chip on' : 'chip'} onClick={() => setKappa(!kappa)}>Нужны для Каппы</button>
-        <button className={hideDone ? 'chip on' : 'chip'} onClick={() => setHideDone(!hideDone)}>Скрыть выполненные</button>
+        {!onlyOpen && <button className={hideDone ? 'chip on' : 'chip'} onClick={() => setHideDone(!hideDone)}>Скрыть выполненные</button>}
       </div>
       <State loading={loading} error={error} />
-      {data && list.length === 0 && <div className="state">Ничего не найдено</div>}
+      {data && list.length === 0 && <div className="state">{onlyOpen ? 'Открытых квестов нет — проверьте уровень и лояльность или откройте «Все квесты»' : 'Ничего не найдено'}</div>}
       {byLoyalty ? (
         groups.map((g) => (
           <div key={g.ll} className="ll-group">
