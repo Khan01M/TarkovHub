@@ -4,6 +4,8 @@ import { num, loadTasks, getGameMode, GameMode } from '../api';
 import { useProgress, useTeam, Teammate, readLegacy, archiveLegacy, addLocal, readLocal, uploadMarks } from '../progress';
 import { signIn } from '../auth';
 import { questAvailability, guessLevel, guessLoyalty } from '../questAvail';
+import { parseLogs, marksFromLogs, LogResult } from '../logimport';
+import type { Task } from '../api';
 
 function useStored(key: string, initial: string) {
   const [v, setV] = useState<string>(() => { try { return localStorage.getItem(key) || initial; } catch { return initial; } });
@@ -153,6 +155,7 @@ export default function Quests() {
       <h1>Квесты</h1>
       <p className="lead">Что нужно сделать и где. Отмечайте выполненные квесты.</p>
       <ProgressPanel progress={progress} mode={mode} />
+      {!readOnly && data && <LogImport progress={progress} tasks={data.tasks} mode={mode} />}
       {team.team.length > 1 && (
         <TeamBar team={team.team} tasks={tasks.map((t) => t.id)} viewing={viewed?.userId || a.userId || ''} onPick={(id) => setViewing(id === a.userId ? '' : id)} onRefresh={team.reload} loading={team.loading} />
       )}
@@ -237,6 +240,77 @@ export default function Quests() {
 }
 
 type Progress = ReturnType<typeof useProgress>;
+
+/** Импорт выполненных квестов из папки Logs игры */
+function LogImport({ progress, tasks, mode }: { progress: Progress; tasks: Task[]; mode: GameMode }) {
+  const [res, setRes] = useState<LogResult[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const names = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t.name])), [tasks]);
+  const { auth, source } = progress;
+  const date = (s: number) => new Date(s * 1000).toLocaleDateString('ru-RU');
+
+  const pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length) return;
+    setBusy(true); setMsg(null); setRes(null);
+    try {
+      const r = await parseLogs(files);
+      if (!r.length) setMsg('В выбранной папке не нашлось сообщений о квестах. Выберите папку Logs в папке Escape from Tarkov.');
+      setRes(r);
+    } catch (err: any) { setMsg('Не удалось прочитать логи: ' + (err?.message || err)); } finally { setBusy(false); }
+  };
+
+  const apply = async (r: LogResult, ids: string[]) => {
+    setBusy(true); setMsg(null);
+    try {
+      if (source === 'account' && auth.userId) await uploadMarks(r.mode, auth.userId, ids);
+      else addLocal(r.mode, ids);
+      setMsg(`Отмечено квестов: ${ids.length} (${r.mode === 'pve' ? 'PvE' : 'PvP'}).`);
+      setRes(null);
+      progress.reload();
+    } catch (err: any) { setMsg('Не удалось сохранить: ' + (err?.message || err) + '. Попробуйте ещё раз.'); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="log-import">
+      <label className="btn small">
+        {busy ? 'Читаю логи…' : 'Импорт из логов игры'}
+        <input type="file" multiple hidden disabled={busy} onChange={pick} {...({ webkitdirectory: '', directory: '' } as any)} />
+      </label>
+      <span className="muted small"> Выберите папку <b>Logs</b> в папке игры (например, D:\Battlestate Games\Escape from Tarkov\Logs) — сайт отметит выполненные квесты. Файлы никуда не отправляются.</span>
+      {msg && <div className="alert info">{msg}</div>}
+      {res?.map((r) => {
+        const m = marksFromLogs(r, tasks);
+        const fresh = [...m.fromLog, ...m.inferred].filter((id) => !(r.mode === mode && progress.done[id]));
+        return (
+          <div key={r.mode} className="alert info">
+            <b>{r.mode === 'pve' ? 'PvE' : 'PvP'}</b>: логи с {date(r.from)} по {date(r.to)}, игровых сессий: {r.sessions}.
+            Выполнено по логам: <b>{m.fromLog.length}</b>, взято сейчас: {r.started.length}
+            {m.inferred.length > 0 && <>, предыдущих квестов по цепочкам: <b>{m.inferred.length}</b></>}.
+            {m.unknown > 0 && <span className="muted"> Ивентовых и сюжетных сообщений без квеста в справочнике: {m.unknown}.</span>}
+            <details>
+              <summary>Что будет отмечено ({fresh.length})</summary>
+              <ul className="plain small">
+                {m.fromLog.map((id) => <li key={id}>✓ {names[id]}</li>)}
+                {m.inferred.map((id) => <li key={id} className="muted">↳ {names[id]} (нужен для следующих)</li>)}
+              </ul>
+              {r.started.length > 0 && <div className="small muted">Взяты, но не выполнены: {r.started.map((id) => names[id]).filter(Boolean).join(', ')}</div>}
+            </details>
+            <div className="muted small">В логах есть только квесты, выполненные за эти даты. Более ранние отметьте вручную — в режиме «Все квесты».</div>
+            <div>
+              <button className="btn small" disabled={busy || !fresh.length} onClick={() => apply(r, fresh)}>
+                {fresh.length ? `Отметить ${fresh.length} в ${r.mode === 'pve' ? 'PvE' : 'PvP'}` : 'Всё уже отмечено'}
+              </button>
+              <button className="btn ghost small" disabled={busy} onClick={() => setRes(null)}>Отмена</button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /** Где хранится прогресс, перенос старых отметок и ошибки сохранения. */
 function ProgressPanel({ progress, mode }: { progress: Progress; mode: GameMode }) {
