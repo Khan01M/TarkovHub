@@ -8,7 +8,8 @@
 // квестов той же ветки (estimated = true).
 import type { Task } from './api';
 
-export type Avail = { state: 'done' | 'open' | 'locked'; why: string[]; estimated?: boolean };
+// active — квест взят (по логам игры), такой всегда считается открытым; «f:<id>» — провален
+export type Avail = { state: 'done' | 'open' | 'locked'; why: string[]; estimated?: boolean; active?: boolean };
 
 export function questAvailability(tasks: Task[], done: Record<string, boolean>, level: number, ll: (trader: string) => number) {
   const byId: Record<string, Task> = Object.fromEntries(tasks.map((t) => [t.id, t]));
@@ -24,6 +25,8 @@ export function questAvailability(tasks: Task[], done: Record<string, boolean>, 
   const calc = (t: Task, stack: Set<string>): Avail => {
     if (memo[t.id]) return memo[t.id];
     if (done[t.id]) return (memo[t.id] = { state: 'done', why: [] });
+    if (done['f:' + t.id]) return (memo[t.id] = { state: 'locked', why: ['квест провален'] });
+    if (done['a:' + t.id]) return (memo[t.id] = { state: 'open', why: [], active: true });
     if (stack.has(t.id)) return { state: 'locked', why: [] }; // защита от циклов в данных
     stack.add(t.id);
     const why: string[] = [];
@@ -52,10 +55,13 @@ export function questAvailability(tasks: Task[], done: Record<string, boolean>, 
   return out;
 }
 
-/** Уровень ЧВК, если игрок его не указал: самый высокий из требований выполненных квестов */
-export const guessLevel = (tasks: Task[], done: Record<string, boolean>) =>
-  Math.max(1, ...tasks.filter((t) => done[t.id]).map((t) => t.minPlayerLevel));
+// Выполненный или взятый квест (по логам) — значит, уровень и лояльность для него уже были
+const had = (done: Record<string, boolean>, id: string) => !!done[id] || !!done['a:' + id];
 
-/** Лояльность у торговца, если не указана: самая высокая из выполненных квестов этого торговца */
+/** Уровень ЧВК, если игрок его не указал: самый высокий из требований выполненных и взятых квестов */
+export const guessLevel = (tasks: Task[], done: Record<string, boolean>) =>
+  Math.max(1, ...tasks.filter((t) => had(done, t.id)).map((t) => t.minPlayerLevel));
+
+/** Лояльность у торговца, если не указана: самая высокая из выполненных и взятых квестов этого торговца */
 export const guessLoyalty = (tasks: Task[], done: Record<string, boolean>, trader: string) =>
-  Math.max(1, ...tasks.filter((t) => done[t.id] && t.trader === trader).map((t) => t.loyalty));
+  Math.max(1, ...tasks.filter((t) => had(done, t.id) && t.trader === trader).map((t) => t.loyalty));

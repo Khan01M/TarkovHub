@@ -4,7 +4,7 @@ import { num, loadTasks, getGameMode, GameMode } from '../api';
 import { useProgress, useTeam, Teammate, readLegacy, archiveLegacy, addLocal, readLocal, uploadMarks } from '../progress';
 import { signIn } from '../auth';
 import { questAvailability, guessLevel, guessLoyalty } from '../questAvail';
-import { parseLogs, marksFromLogs, LogResult } from '../logimport';
+import { parseLogs, marksFromLogs, LogResult, saveRaids } from '../logimport';
 import type { Task } from '../api';
 
 function useStored(key: string, initial: string) {
@@ -74,7 +74,7 @@ export default function Quests() {
       .filter((t) => (!activeTrader || t.trader === activeTrader) && (!mapF || t.map === mapF) && (!kappa || t.kappaRequired) && (!hideDone || !done[t.id]))
       .filter((t) => !onlyOpen || avail[t.id]?.state === 'open')
       .filter((t) => !nq || norm(t.name).includes(nq) || t.objectives.some((o) => norm(o.description).includes(nq)))
-      .sort((a, b) => a.loyalty - b.loyalty || a.minPlayerLevel - b.minPlayerLevel || a.name.localeCompare(b.name, 'ru'));
+      .sort((a, b) => (onlyOpen ? Number(!!avail[b.id]?.active) - Number(!!avail[a.id]?.active) : 0) || a.loyalty - b.loyalty || a.minPlayerLevel - b.minPlayerLevel || a.name.localeCompare(b.name, 'ru'));
   }, [tasks, q, activeTrader, mapF, kappa, hideDone, done, onlyOpen, avail]);
 
   const groups = useMemo(() => {
@@ -106,7 +106,8 @@ export default function Quests() {
             {t.name} {t.kappaRequired && <span className="badge">Каппа</span>}
             {!byLoyalty && t.loyalty > 1 && <span className="badge ll">ЛЛ{t.loyalty}</span>}
             {t.id in unsaved && <span className="badge bad">не сохранено</span>}
-            {!onlyOpen && avail[t.id]?.state === 'open' && <span className="badge open">открыт</span>}
+            {avail[t.id]?.active && <span className="badge open">взят</span>}
+            {!onlyOpen && avail[t.id]?.state === 'open' && !avail[t.id]?.active && <span className="badge open">открыт</span>}
             {!onlyOpen && avail[t.id]?.state === 'locked' && <span className="badge lock" title={avail[t.id].why.join('; ')}>🔒 закрыт</span>}
           </div>
           {others.some((o) => o.done.has(t.id)) && (
@@ -189,7 +190,7 @@ export default function Quests() {
               {[['', 'обе'], ['BEAR', 'BEAR'], ['USEC', 'USEC']].map(([v, l]) => <button key={v} className={faction === v ? 'on wide' : 'wide'} onClick={() => setFaction(v)}>{l}</button>)}
             </span>
           </div>
-          {!readOnly && !lvlStr && <div className="muted small">Уровень и лояльность подобраны по выполненным квестам — поправьте, если в игре они выше.</div>}
+          {!readOnly && !lvlStr && <div className="muted small">Уровень и лояльность подобраны по выполненным и взятым квестам (минимум, который у вас точно есть) — поправьте, если в игре они выше.</div>}
           <div className="chips">
             <button className={!activeTrader ? 'chip on' : 'chip'} onClick={() => setTrader('')}>Все <b>{openCount('')}</b></button>
             {traders.map((t) => <button key={t} className={t === activeTrader ? 'chip on' : 'chip'} onClick={() => setTrader(t)}>{t} <b>{openCount(t)}</b></button>)}
@@ -262,14 +263,21 @@ function LogImport({ progress, tasks, mode }: { progress: Progress; tasks: Task[
     } catch (err: any) { setMsg('Не удалось прочитать логи: ' + (err?.message || err)); } finally { setBusy(false); }
   };
 
+  // Применяем всё, что есть в логах, к текущему режиму: выполненные (+ предыдущие по цепочкам),
+  // взятые сейчас («a:»), проваленные («f:»), а историю рейдов — на это устройство
   const apply = async (r: LogResult, ids: string[]) => {
     setBusy(true); setMsg(null);
     try {
-      if (source === 'account' && auth.userId) await uploadMarks(r.mode, auth.userId, ids);
-      else addLocal(r.mode, ids);
-      setMsg(`Отмечено квестов: ${ids.length} (${r.mode === 'pve' ? 'PvE' : 'PvP'}).`);
+      const ch: Record<string, boolean> = {};
+      for (const id of ids) ch[id] = true;
+      for (const id of r.finished) { ch['a:' + id] = false; ch['f:' + id] = false; }
+      for (const id of r.started) if (names[id] && !ch[id]) { ch['a:' + id] = true; ch['f:' + id] = false; }
+      for (const id of r.failed) if (names[id]) { ch['f:' + id] = true; ch['a:' + id] = false; }
+      progress.setMarks(ch);
+      const raids = r.raids.length ? saveRaids(r.mode, r.raids) : 0;
+      setMsg(`Готово (${r.mode === 'pve' ? 'PvE' : 'PvP'}): выполнено ${ids.length}, взято ${r.started.filter((id) => names[id]).length}, провалено ${r.failed.filter((id) => names[id]).length}` +
+        (raids ? `, рейдов в истории: ${raids} (см. Обзор)` : '') + '.');
       setRes(null);
-      progress.reload();
     } catch (err: any) { setMsg('Не удалось сохранить: ' + (err?.message || err) + '. Попробуйте ещё раз.'); } finally { setBusy(false); }
   };
 
@@ -287,7 +295,7 @@ function LogImport({ progress, tasks, mode }: { progress: Progress; tasks: Task[
         return (
           <div key={r.mode} className="alert info">
             <b>{r.mode === 'pve' ? 'PvE' : 'PvP'}</b>: логи с {date(r.from)} по {date(r.to)}, игровых сессий: {r.sessions}.
-            Выполнено по логам: <b>{m.fromLog.length}</b>, взято сейчас: {r.started.length}
+            Выполнено по логам: <b>{m.fromLog.length}</b>, взято сейчас: {r.started.filter((id) => names[id]).length}{r.failed.length > 0 && <>, провалено: {r.failed.filter((id) => names[id]).length}</>}, рейдов: {r.raids.length}
             {m.inferred.length > 0 && <>, предыдущих квестов по цепочкам: <b>{m.inferred.length}</b></>}.
             {m.unknown > 0 && <span className="muted"> Ивентовых и сюжетных сообщений без квеста в справочнике: {m.unknown}.</span>}
             <details>
@@ -298,11 +306,13 @@ function LogImport({ progress, tasks, mode }: { progress: Progress; tasks: Task[
               </ul>
               {r.started.length > 0 && <div className="small muted">Взяты, но не выполнены: {r.started.map((id) => names[id]).filter(Boolean).join(', ')}</div>}
             </details>
-            <div className="muted small">В логах есть только квесты, выполненные за эти даты. Более ранние отметьте вручную — в режиме «Все квесты».</div>
+            <div className="muted small">Будет обновлено: выполненные квесты (с предыдущими по цепочкам), взятые и проваленные квесты, история рейдов. В логах есть только то, что было за эти даты — более ранние квесты отметьте вручную. Уровень ЧВК, лояльность и убежище игра в логи не пишет — их задайте сами.</div>
             <div>
-              <button className="btn small" disabled={busy || !fresh.length} onClick={() => apply(r, fresh)}>
-                {fresh.length ? `Отметить ${fresh.length} в ${r.mode === 'pve' ? 'PvE' : 'PvP'}` : 'Всё уже отмечено'}
-              </button>
+              {r.mode !== mode ? (
+                <span className="small"><b>Переключите режим на {r.mode === 'pve' ? 'PvE' : 'PvP'}</b> вверху страницы и выберите папку ещё раз.</span>
+              ) : (
+                <button className="btn small" disabled={busy} onClick={() => apply(r, fresh)}>Применить к {r.mode === 'pve' ? 'PvE' : 'PvP'}</button>
+              )}
               <button className="btn ghost small" disabled={busy} onClick={() => setRes(null)}>Отмена</button>
             </div>
           </div>

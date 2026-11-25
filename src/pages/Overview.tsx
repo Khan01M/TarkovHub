@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useData, State, Img, safeUrl } from '../ui';
 import { getGameMode, rub, loadTasks } from '../api';
 import { questAvailability, guessLevel, guessLoyalty } from '../questAvail';
+import { readRaids, locName } from '../logimport';
 import { useProgress } from '../progress';
 import { loadQuestData, currentTasks, QuestData, QuestTask, Gunsmith } from '../questdata';
 
@@ -57,6 +58,7 @@ export default function Overview() {
             <MapPriority data={data} current={current} />
             <GoonTracker data={data} />
           </div>
+          <RaidHistory mode={mode} />
           <Gunsmiths data={data} current={current} />
           <RaidItems data={data} current={current} done={progress.done} />
           <CurrentList data={data} current={current} />
@@ -328,6 +330,33 @@ function RaidItems({ data, current, done }: { data: QuestData; current: QuestTas
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------- Мои рейды (из логов игры) ----------
+function RaidHistory({ mode }: { mode: string }) {
+  const raids = useMemo(() => readRaids(mode as any), [mode]);
+  if (!raids.length) return (
+    <div className="card ov-block">
+      <h3>Мои рейды</h3>
+      <div className="muted small">Пока пусто. Импортируйте логи игры на странице <a className="link" href="#/quests">Квесты</a> — здесь появится история рейдов по картам.</div>
+    </div>
+  );
+  const byMap: Record<string, number> = {};
+  for (const r of raids) byMap[locName(r.map)] = (byMap[locName(r.map)] || 0) + 1;
+  const week = raids.filter((r) => r.t > Date.now() - 7 * 864e5).length;
+  const fmt = (t: number) => new Date(t).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return (
+    <div className="card ov-block">
+      <h3>Мои рейды <span className="muted small">· всего {raids.length}, за неделю {week}</span></h3>
+      <div className="chips">
+        {Object.entries(byMap).sort((a, b) => b[1] - a[1]).map(([m, n]) => <span key={m} className="chip">{m} <b>{n}</b></span>)}
+      </div>
+      <div className="raid-hist">
+        {raids.slice(0, 8).map((r) => <div key={r.id} className="kv"><span>{locName(r.map)}</span><span className="muted small">{fmt(r.t)}</span></div>)}
+      </div>
+      <div className="muted small">По логам игры, хранится на этом устройстве. Обновляется при импорте логов.</div>
     </div>
   );
 }

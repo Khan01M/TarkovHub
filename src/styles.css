@@ -521,3 +521,4 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 14px; }
 .raid-q { display: flex; gap: 8px; align-items: center; width: 100%; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; padding: 2px 0; }
 .ov-head { flex-wrap: wrap; gap: 8px; }
 .log-import { margin: 6px 0 10px; } .log-import label.btn { cursor: pointer; display: inline-block; }
+.raid-hist { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; max-width: 420px; }
