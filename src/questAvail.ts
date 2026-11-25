@@ -65,3 +65,29 @@ export const guessLevel = (tasks: Task[], done: Record<string, boolean>) =>
 /** Лояльность у торговца, если не указана: самая высокая из выполненных и взятых квестов этого торговца */
 export const guessLoyalty = (tasks: Task[], done: Record<string, boolean>, trader: string) =>
   Math.max(1, ...tasks.filter((t) => had(done, t.id) && t.trader === trader).map((t) => t.loyalty));
+
+// ---------- уровень ЧВК и лояльность, указанные игроком ----------
+// Хранятся вместе с прогрессом (в аккаунте, если вошли): «lvl:28», «ll:Прапор:3».
+export function storedLevel(m: Record<string, boolean>): number {
+  for (const k in m) if (m[k] && k.startsWith('lvl:')) return Number(k.slice(4)) || 0;
+  return 0;
+}
+export function storedLL(m: Record<string, boolean>, trader: string): number {
+  const p = `ll:${trader}:`;
+  for (const k in m) if (m[k] && k.startsWith(p)) return Number(k.slice(p.length)) || 0;
+  return 0;
+}
+/** Изменения отметок, чтобы записать новое значение (старое снимается) */
+export function levelChanges(m: Record<string, boolean>, level: number) {
+  const ch: Record<string, boolean> = {};
+  for (const k in m) if (m[k] && k.startsWith('lvl:')) ch[k] = false;
+  if (level > 0) ch['lvl:' + level] = true;
+  return ch;
+}
+export function llChanges(m: Record<string, boolean>, trader: string, n: number) {
+  const ch: Record<string, boolean> = {};
+  const p = `ll:${trader}:`;
+  for (const k in m) if (m[k] && k.startsWith(p)) ch[k] = false;
+  if (n > 0) ch[p + n] = true;
+  return ch;
+}

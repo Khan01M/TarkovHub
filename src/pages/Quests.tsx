@@ -3,7 +3,7 @@ import { useData, State, Search, norm, safeUrl } from '../ui';
 import { num, loadTasks, getGameMode, GameMode } from '../api';
 import { useProgress, useTeam, Teammate, readLegacy, archiveLegacy, addLocal, readLocal, uploadMarks } from '../progress';
 import { signIn } from '../auth';
-import { questAvailability, guessLevel, guessLoyalty } from '../questAvail';
+import { questAvailability, guessLevel, guessLoyalty, storedLevel, storedLL, levelChanges, llChanges } from '../questAvail';
 import { parseLogs, marksFromLogs, LogResult, saveRaids } from '../logimport';
 import type { Task } from '../api';
 
@@ -45,17 +45,18 @@ export default function Quests() {
   const others = team.team.filter((t) => t.userId !== (readOnly ? viewed!.userId : a.userId));
 
   // Уровень ЧВК и лояльность: свои — из настроек (или по выполненным квестам), у товарища — только по его квестам
-  const [lvlStr, setLvlStr] = useStored(`questsLevel:${mode}`, '');
-  const [llStr, setLlStr] = useStored(`questsLL:${mode}`, '{}');
+
   const [faction, setFaction] = useStored('questsFaction', '');
-  const llMap: Record<string, number> = useMemo(() => { try { return JSON.parse(llStr) || {}; } catch { return {}; } }, [llStr]);
 
   // Квесты только для другой фракции (BEAR/USEC) прячем, если фракция выбрана
   const tasks = useMemo(() => (data?.tasks || []).filter((t) => !faction || !t.faction || t.faction === faction), [data, faction]);
-  const level = (!readOnly && Number(lvlStr)) || guessLevel(tasks, done);
-  const llOf = (tr: string) => (!readOnly && llMap[tr]) || guessLoyalty(tasks, done, tr);
-  const setLL = (tr: string, n: number) => setLlStr(JSON.stringify({ ...llMap, [tr]: n }));
-  const avail = useMemo(() => questAvailability(tasks, done, level, llOf), [tasks, done, level, llMap, readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Указанные уровень/ЛЛ сохраняются с прогрессом; у товарища видны его значения
+  const setByUser = storedLevel(done);
+  const level = setByUser || guessLevel(tasks, done);
+  const llOf = (tr: string) => storedLL(done, tr) || guessLoyalty(tasks, done, tr);
+  const setLevel = (n: number) => progress.setMarks(levelChanges(myDone, n));
+  const setLL = (tr: string, n: number) => progress.setMarks(llChanges(myDone, tr, n));
+  const avail = useMemo(() => questAvailability(tasks, done, level, llOf), [tasks, done, level]); // eslint-disable-line react-hooks/exhaustive-deps
   const onlyOpen = scope === 'open';
   // Торговцы в игровом порядке, только те, у кого есть квесты
   const traderInfo = useMemo(() => (data?.traders || []).filter((t) => tasks.some((x) => x.trader === t.name)), [data]);
@@ -177,7 +178,7 @@ export default function Quests() {
           <div className="muted small">Как во вкладке «Задания» у торговцев: квесты, которые можно взять прямо сейчас, — по уровню ЧВК, лояльности и выполненным квестам.</div>
           <div className="me-stats">
             <label>Уровень ЧВК
-              <input type="number" min={1} max={79} value={level} disabled={readOnly} onChange={(e) => setLvlStr(String(Math.max(1, Math.min(79, Number(e.target.value) || 1))))} />
+              <input type="number" min={1} max={79} value={level} disabled={readOnly} onChange={(e) => setLevel(Math.max(1, Math.min(79, Number(e.target.value) || 1)))} />
             </label>
             {activeTrader && (
               <span className="ll-pick">ЛЛ у торговца {activeTrader}:
@@ -190,7 +191,7 @@ export default function Quests() {
               {[['', 'обе'], ['BEAR', 'BEAR'], ['USEC', 'USEC']].map(([v, l]) => <button key={v} className={faction === v ? 'on wide' : 'wide'} onClick={() => setFaction(v)}>{l}</button>)}
             </span>
           </div>
-          {!readOnly && !lvlStr && <div className="muted small">Уровень и лояльность подобраны по выполненным и взятым квестам (минимум, который у вас точно есть) — поправьте, если в игре они выше.</div>}
+          {!readOnly && !setByUser && <div className="muted small">Уровень и лояльность подобраны по выполненным и взятым квестам (минимум, который у вас точно есть) — поправьте, если в игре они выше.</div>}
           <div className="chips">
             <button className={!activeTrader ? 'chip on' : 'chip'} onClick={() => setTrader('')}>Все <b>{openCount('')}</b></button>
             {traders.map((t) => <button key={t} className={t === activeTrader ? 'chip on' : 'chip'} onClick={() => setTrader(t)}>{t} <b>{openCount(t)}</b></button>)}

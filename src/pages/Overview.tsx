@@ -1,14 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useData, State, Img, safeUrl } from '../ui';
 import { getGameMode, rub, loadTasks } from '../api';
-import { questAvailability, guessLevel, guessLoyalty } from '../questAvail';
+import { questAvailability, guessLevel, guessLoyalty, storedLevel, storedLL, levelChanges } from '../questAvail';
 import { readRaids, locName } from '../logimport';
 import { useProgress } from '../progress';
 import { loadQuestData, currentTasks, QuestData, QuestTask, Gunsmith } from '../questdata';
 
-// Уровень, лояльность и фракция — общие со страницей «Квесты»
-const levelKey = () => `questsLevel:${getGameMode()}`;
-const readLevel = () => { try { return Number(localStorage.getItem(levelKey())) || 0; } catch { return 0; } };
 
 const OBJ_ICON: Record<string, string> = {
   visit: '◎', mark: '⚑', plantItem: '⬇', plantQuestItem: '⬇', findQuestItem: '✋', findItem: '✋', giveItem: '⇄', giveQuestItem: '⇄',
@@ -19,19 +16,20 @@ export default function Overview() {
   const mode = getGameMode();
   const { data, error, loading } = useData(loadQuestData);
   const progress = useProgress(mode);
-  const [level, setLevelState] = useState(readLevel);
-  const setLevel = (v: number) => { setLevelState(v); try { localStorage.setItem(levelKey(), String(v || '')); } catch { /* ignore */ } };
+  // Уровень и лояльность — общие со страницей «Квесты» (хранятся вместе с прогрессом)
+  const level = storedLevel(progress.done);
+  const setLevel = (v: number) => progress.setMarks(levelChanges(progress.done, v));
 
   const tasksD = useData(loadTasks);
   // Текущие = открытые сейчас у торговцев (как на странице «Квесты» в режиме «Открытые сейчас»)
   const openIds = useMemo(() => {
     const all = tasksD.data?.tasks;
     if (!all) return null;
-    let ll: Record<string, number> = {}; let faction = '';
-    try { ll = JSON.parse(localStorage.getItem(`questsLL:${mode}`) || '{}') || {}; faction = localStorage.getItem('questsFaction') || ''; } catch { /* ignore */ }
+    let faction = '';
+    try { faction = localStorage.getItem('questsFaction') || ''; } catch { /* ignore */ }
     const tasks = all.filter((t) => !faction || !t.faction || t.faction === faction);
     const lv = level || guessLevel(tasks, progress.done);
-    const av = questAvailability(tasks, progress.done, lv, (tr) => ll[tr] || guessLoyalty(tasks, progress.done, tr));
+    const av = questAvailability(tasks, progress.done, lv, (tr) => storedLL(progress.done, tr) || guessLoyalty(tasks, progress.done, tr));
     return new Set(tasks.filter((t) => av[t.id].state === 'open').map((t) => t.id));
   }, [tasksD.data, progress.done, level, mode]);
   const current = useMemo(() => {
