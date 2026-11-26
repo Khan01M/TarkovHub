@@ -5,6 +5,21 @@
 export type Block = { h?: string; p?: string; list?: string[]; tip?: string; warn?: string; links?: [string, string][] };
 export type Guide = { id: string; title: string; tag: string; summary: string; updated?: string; blocks: Block[] };
 
+/** Главы сюжета 1.0 по порядку. Единственное место со списком: его используют гайд 'story' и вкладка «Терминал».
+ *  slug входит в ключ прогресса «t:ch:<slug>» — не менять у существующих глав. */
+export const STORY_CHAPTERS: { slug: string; name: string; note?: string }[] = [
+  { slug: 'tour', name: 'Tour', note: 'обучение: побег с Эпицентра, знакомство с торговцами, открытие карт' },
+  { slug: 'falling-skies', name: 'Falling Skies' },
+  { slug: 'the-ticket', name: 'The Ticket', note: 'ведёт к Терминалу' },
+  { slug: 'batya', name: 'Батя' },
+  { slug: 'accidental-witness', name: 'Accidental Witness' },
+  { slug: 'blue-fire', name: 'Blue Fire' },
+  { slug: 'boreas', name: 'Борей', note: 'открывает Ледокол' },
+  { slug: 'the-labyrinth', name: 'The Labyrinth' },
+  { slug: 'the-unheard', name: 'The Unheard' },
+  { slug: 'they-are-already-here', name: 'They Are Already Here' },
+];
+
 export const GUIDES: Guide[] = [
   {
     id: 'start', title: 'Первые рейды: как не терять всё', tag: 'Новичкам',
@@ -352,9 +367,12 @@ export const GUIDES: Guide[] = [
     blocks: [
       { p: 'В версии 1.0 в игре появилась сюжетная линия из десяти глав и четырёх концовок. Сюжетные задания идут параллельно с обычными квестами торговцев.' },
       { h: 'Главы по порядку' },
-      { list: ['Tour (обучение: побег с Эпицентра, знакомство с торговцами, открытие карт)', 'Falling Skies', 'The Ticket', 'Батя', 'Accidental Witness', 'Blue Fire', 'Борей (открывает Ледокол)', 'The Labyrinth', 'The Unheard', 'They Are Already Here'] },
+      { list: STORY_CHAPTERS.map((c) => (c.note ? `${c.name} (${c.note})` : c.name)) },
       { h: 'Концовки' },
       { p: 'Их четыре: «Спаситель», «Выживший», «Должник» и «Павший». Концовка зависит от решений по ходу сюжета, и некоторые из них принимаются задолго до финала. Решения окончательные.' },
+      { h: 'Терминал' },
+      { p: 'Финал сюжета проходит на карте «Терминал». Попасть туда можно только переходом с Берега и только с пропуском. Что нужно, как скрафтить пропуск и готова ли вся команда — в разделе «Терминал» (в меню и на главной).' },
+      { warn: 'Часть сведений о Терминале взята из сторонних гайдов и не подтверждена данными игры (время входа, расход пропуска, нужен ли пропуск каждому в группе). Проверяйте в игре.' },
       { h: 'Советы' },
       { list: [
         'Совмещайте сюжетные цели с обычными квестами на той же карте.',

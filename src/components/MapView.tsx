@@ -101,9 +101,13 @@ function useMapImage(cfg: MapImage | undefined, floor: string) {
 const FACTION: Record<string, string> = { pmc: '#5fbf6a', scav: '#d9b84a', shared: '#4fa3d9' };
 
 
-export default function MapView({ map, track, show, quests = [], selected, onSelect, focus }: {
+/** Особая точка на карте (например, переход на Терминал): ромб с подписью и, если есть, контур зоны */
+export type MapMark = { x: number; z: number; label: string; outline?: [number, number][] };
+
+export default function MapView({ map, track, show, quests = [], selected, onSelect, focus, marks = [] }: {
   map: any; track: Pos[]; show: Record<string, boolean>; quests?: QuestPin[];
   selected?: string | null; onSelect?: (id: string | null) => void; focus?: { n: number; pts: [number, number][] } | null;
+  marks?: MapMark[];
 }) {
   const cfg = IMAGES[ALIAS[map.normalizedName] || map.normalizedName];
   const [floor, setFloor] = useState('');
@@ -212,6 +216,17 @@ export default function MapView({ map, track, show, quests = [], selected, onSel
             <g key={'e' + i}>
               <circle cx={x} cy={y} r={6 * u} fill={FACTION[e.faction] || '#ccc'} stroke="#0f1110" strokeWidth={2 * u} />
               <text x={x + 9 * u} y={y + 4 * u} className="map-label" style={{ fontSize: 12 * u, strokeWidth: 3 * u }}>{e.name}</text>
+            </g>
+          );
+        })}
+        {marks.map((m, i) => {
+          const [x, y] = project(m.x, m.z);
+          const r = 8 * u;
+          return (
+            <g key={'m' + i} className="map-mark">
+              {m.outline && m.outline.length > 2 && <polygon points={m.outline.map(([ox, oz]) => project(ox, oz).join(',')).join(' ')} strokeWidth={2 * u} />}
+              <path d={`M${x} ${y - r}L${x + r} ${y}L${x} ${y + r}L${x - r} ${y}Z`} strokeWidth={2 * u} />
+              <text x={x + 12 * u} y={y + 4 * u} className="map-label" style={{ fontSize: 13 * u, strokeWidth: 3 * u, fontWeight: 700 }}>{m.label}</text>
             </g>
           );
         })}

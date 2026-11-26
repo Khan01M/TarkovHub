@@ -522,3 +522,31 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 14px; }
 .ov-head { flex-wrap: wrap; gap: 8px; }
 .log-import { margin: 6px 0 10px; } .log-import label.btn { cursor: pointer; display: inline-block; }
 .raid-hist { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; max-width: 420px; }
+
+/* Терминал */
+.terminal .card + .card { margin-top: 10px; }
+.tm-summary { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.tm-summary .progress { margin-bottom: 0; }
+.tm-unv { margin-left: 6px; margin-right: 0; font-weight: 500; white-space: nowrap; }
+.tm-have { display: flex; align-items: center; gap: 10px; cursor: pointer; margin-bottom: 8px; }
+.tm-have input, .tm-chapters input { width: 20px; height: 20px; accent-color: var(--ok); flex-shrink: 0; }
+.tm-passes { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; margin-top: 8px; }
+.tm-pass { display: flex; flex-direction: column; gap: 8px; }
+.tm-craft { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.tm-craft .hd-item { cursor: default; }
+.tm-hideout { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.tm-hreq { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tm-hreq.other { opacity: .6; }
+.tm-chapters { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.tm-chapters label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.tm-chapters label.done > span { color: var(--muted); }
+.tm-spoiler { margin-top: 10px; }
+.tm-verdict { margin: 10px 0 6px; font-weight: 700; color: var(--accent); }
+.tm-verdict.ok { color: var(--ok); }
+.tm-home { margin-top: 6px; color: var(--accent); }
+.terminal tr.tm-out td { opacity: .55; }
+.terminal tr.tm-out td:first-child { opacity: 1; }
+.map-mark polygon { fill: rgba(176, 124, 255, .25); stroke: #b07cff; }
+.map-mark path { fill: #b07cff; stroke: #0f1110; }
+.legend i.tm-mark { background: #b07cff; border-radius: 1px; transform: rotate(45deg); }
+@media (max-width: 860px) { .tm-passes { grid-template-columns: 1fr; } }

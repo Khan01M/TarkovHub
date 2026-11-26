@@ -6,7 +6,8 @@ import { loadQuestData, useOpenTaskIds, QuestTask } from '../questdata';
 import { Img } from '../ui';
 import { rub } from '../api';
 import { desktop, parseScreenshotName, Pos } from '../position';
-import MapView, { hasMapImage } from '../components/MapView';
+import MapView, { hasMapImage, type MapMark } from '../components/MapView';
+import { loadTerminalTransits } from '../terminal';
 import { PinMark, QuestPin, TYPE_ICON } from '../components/Pin';
 
 
@@ -66,6 +67,11 @@ export default function Maps() {
     return out;
   }, [mapQuests, map, progress.done]);
 
+  // Переход на Терминал (сейчас только с Берега): грузим, только когда открыта карта с таким переходом
+  const term = useData(() => (map?.normalizedName === 'shoreline' ? loadTerminalTransits().catch(() => null) : Promise.resolve(null)), [map?.normalizedName]);
+  const marks: MapMark[] = useMemo(() => (term.data || []).filter((t) => t.mapId === map?.id)
+    .map((t) => ({ x: t.x, z: t.z, label: t.label, outline: t.outline })), [term.data, map?.id]);
+
   const chooseTask = (id: string | null, fromList: boolean) => {
     setSelTask(id);
     if (id && fromList) setFocus({ n: Date.now(), pts: questPoints.filter((p) => p.taskId === id).map((p) => [p.x, p.z]) });
@@ -107,7 +113,7 @@ export default function Maps() {
           <div className="map-layout">
             <div className="card">
               {hasMapImage(map.normalizedName)
-                ? <MapView map={map} track={track} show={show} quests={show.quests ? questPoints : []} selected={selTask} onSelect={(id) => chooseTask(id, false)} focus={focus} />
+                ? <MapView map={map} track={track} show={show} quests={show.quests ? questPoints : []} selected={selTask} onSelect={(id) => chooseTask(id, false)} focus={focus} marks={marks} />
                 : <MapCanvas map={map} track={track} show={show} quests={show.quests ? questPoints : []} selected={selTask} onSelect={(id) => chooseTask(id, false)} />}
               {selTask && (() => {
                 const q = mapQuests.find((x) => x.task.id === selTask);
@@ -126,6 +132,7 @@ export default function Maps() {
                 <label><input type="checkbox" checked={show.spawns} onChange={(e) => setShow({ ...show, spawns: e.target.checked })} /><i style={{ background: '#888' }} /> Точки спавна</label>
                 <label><input type="checkbox" checked={show.quests} onChange={(e) => setShow({ ...show, quests: e.target.checked })} /><i className="q-pin" /> Квесты ({mapQuests.length})</label>
                 <label><i className="me" /> Вы</label>
+                {marks.length > 0 && <label><i className="tm-mark" /> <a className="link" href="#/terminal">Переход на Терминал</a></label>}
               </div>
             </div>
             <div className="side">
