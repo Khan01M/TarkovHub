@@ -48,6 +48,9 @@ async function applySession(session: Session | null) {
     if (error) throw error;
     set({ ...base, status: data === true ? 'allowed' : 'denied' });
   } catch (e: any) {
+    // Кратковременный сбой проверки (сеть, 5xx) у уже допущенного игрока не выкидывает его из аккаунта:
+    // иначе прогресс молча переключился бы на локальный
+    if (state.status === 'allowed' && state.userId === u.id) { console.warn('am_i_allowed:', e?.message || e); set({ ...base, status: 'allowed' }); return; }
     set({ ...base, status: 'error', error: e?.message || String(e) });
   }
 }
@@ -65,6 +68,14 @@ async function start() {
     }
     if (event === 'SIGNED_IN') cleanUrl();
   });
+  // Первая проверка доступа упала (сеть, 5xx) — повторяем, когда сеть вернулась или вкладку открыли снова
+  const retryCheck = async () => {
+    if (state.status !== 'error' || !state.userId || document.visibilityState === 'hidden') return;
+    const { data } = await c.auth.getSession();
+    if (state.status === 'error' && data.session?.user.id === state.userId) applySession(data.session);
+  };
+  window.addEventListener('online', retryCheck);
+  document.addEventListener('visibilitychange', retryCheck);
 }
 
 // Убираем ?code=… из адреса и возвращаем страницу, с которой начинали вход
