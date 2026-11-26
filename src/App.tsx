@@ -15,21 +15,22 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { useAuth, signIn, signOut } from './auth';
 import { THEMES, getTheme, setTheme, ThemeId } from './theme';
 
-const ROUTES: { id: string; label: string; short?: string; icon: string; el: () => JSX.Element; noTab?: boolean }[] = [
-  { id: 'home', label: 'Главная', icon: '⌂', el: Home },
-  { id: 'overview', label: 'Обзор', icon: '◉', el: Overview },
-  { id: 'market', label: 'Барахолка', icon: '₽', el: Market },
-  { id: 'weapons', label: 'Оружие', icon: '⌖', el: Weapons },
-  { id: 'bosses', label: 'Боссы', icon: '☠', el: Bosses },
-  { id: 'maps', label: 'Карты', icon: '◈', el: Maps },
-  { id: 'quests', label: 'Квесты', icon: '✓', el: Quests },
-  { id: 'hideout', label: 'Убежище', icon: '▣', el: Hideout },
-  // Промокоды на телефоне — с главной, чтобы нижняя панель не была тесной
-  { id: 'promo', label: 'Промокоды', short: 'Коды', icon: '★', el: Promo, noTab: true },
-  { id: 'guides', label: 'Гайды', icon: '☰', el: Guides, noTab: true },
-  // Терминал — тоже с главной: нижняя панель на телефоне и так заполнена
-  { id: 'terminal', label: 'Терминал', icon: '⚑', el: Terminal, noTab: true },
+// top — в верхнем меню на компьютере, tab — в нижней панели на телефоне; остальное — в «Ещё»
+type Route = { id: string; label: string; short?: string; icon: string; hint: string; el: () => JSX.Element; top?: boolean; tab?: boolean };
+const ROUTES: Route[] = [
+  { id: 'home', label: 'Главная', icon: '⌂', hint: 'С чего начать и все разделы', el: Home, top: true, tab: true },
+  { id: 'overview', label: 'Обзор', icon: '◉', hint: 'Мои текущие задания и что взять в рейд', el: Overview, top: true, tab: true },
+  { id: 'quests', label: 'Квесты', icon: '✓', hint: 'Задания торговцев, отметки выполненного', el: Quests, top: true, tab: true },
+  { id: 'maps', label: 'Карты', icon: '◈', hint: 'Выходы, спавны, точки заданий', el: Maps, top: true, tab: true },
+  { id: 'market', label: 'Барахолка', short: 'Цены', icon: '₽', hint: 'Цены и кому выгоднее продать', el: Market, top: true, tab: true },
+  { id: 'weapons', label: 'Оружие', icon: '⌖', hint: 'Стволы и пробитие патронов', el: Weapons, top: true },
+  { id: 'bosses', label: 'Боссы', icon: '☠', hint: 'Где появляются и с какой охраной', el: Bosses, top: true },
+  { id: 'hideout', label: 'Убежище', icon: '▣', hint: 'Что нужно для улучшений', el: Hideout, top: true },
+  { id: 'terminal', label: 'Терминал', icon: '⚑', hint: 'Финал сюжета: готовность команды', el: Terminal },
+  { id: 'promo', label: 'Промокоды', icon: '★', hint: 'Рабочие коды на снаряжение', el: Promo },
+  { id: 'guides', label: 'Гайды', icon: '☰', hint: 'Механики, заработок, лечение', el: Guides },
 ];
+const MODE_NAME: Record<GameMode, string> = { regular: 'PvP', pve: 'PvE' };
 
 // Роутинг через #hash — работает и на сайте, и в EXE (file://), и в APK.
 function useHash() {
@@ -46,38 +47,55 @@ function useHash() {
 export default function App() {
   const route = useHash();
   const [mode, setMode] = useState<GameMode>(getGameMode());
+  const [modeNote, setModeNote] = useState(false);
   const current = ROUTES.find((r) => r.id === route) || ROUTES[0];
   const Page = current.el;
 
-  const switchMode = (m: GameMode) => { setGameMode(m); setMode(m); };
+  useEffect(() => {
+    if (!modeNote) return;
+    const t = setTimeout(() => setModeNote(false), 4000);
+    return () => clearTimeout(t);
+  }, [modeNote, mode]);
+  const switchMode = (m: GameMode) => {
+    if (m === mode) return;
+    setGameMode(m); setMode(m); setModeNote(true);
+  };
 
   return (
     <div className="app">
       <header className="topbar">
-        <a href="#/home" className="brand"><img src="./icon.svg" alt="" width={26} height={26} /> Tarkov Hub</a>
-        <nav className="nav">
-          {ROUTES.map((r) => (
-            <a key={r.id} href={`#/${r.id}`} className={r.id === current.id ? 'active' : ''}>{r.label}</a>
+        <a href="#/home" className="brand" title="На главную"><img src="./icon.svg" alt="" width={26} height={26} /> <span className="nav-brand-text">Tarkov Hub</span></a>
+        <nav className="nav" aria-label="Разделы">
+          {ROUTES.filter((r) => r.top).map((r) => (
+            <a key={r.id} href={`#/${r.id}`} className={r.id === current.id ? 'active' : ''} aria-current={r.id === current.id ? 'page' : undefined}>{r.label}</a>
           ))}
         </nav>
+        <MoreMenu variant="top" current={current.id} />
         <AuthButton />
         <ThemeButton />
-        <div className="mode" title="Режим игры: цены, квесты и прогресс отличаются">
-          <button className={mode === 'regular' ? 'on' : ''} onClick={() => switchMode('regular')}>PvP</button>
-          <button className={mode === 'pve' ? 'on' : ''} onClick={() => switchMode('pve')}>PvE</button>
+        <div className="mode" role="group" aria-label="Режим игры"
+          title="Режим игры. PvP — обычный онлайн, PvE — против ботов. У каждого режима свои цены, квесты и отметки прогресса">
+          {(['regular', 'pve'] as GameMode[]).map((m) => (
+            <button key={m} className={mode === m ? 'on' : ''} aria-pressed={mode === m} onClick={() => switchMode(m)}>{MODE_NAME[m]}</button>
+          ))}
         </div>
       </header>
+      {/* Контейнер живёт всегда, меняется только текст — иначе скринридеры не озвучат подсказку */}
+      <div className={`nav-toast${modeNote ? ' on' : ''}`} role="status">
+        {modeNote ? `Режим ${MODE_NAME[mode]}: цены, квесты и отметки прогресса — для ${MODE_NAME[mode]}.` : ''}
+      </div>
       <main className="content" key={current.id + mode}>
         <ErrorBoundary key={current.id + mode}>
           <Page />
         </ErrorBoundary>
       </main>
-      <nav className="tabbar">
-        {ROUTES.slice(1).filter((r) => !r.noTab).map((r) => (
-          <a key={r.id} href={`#/${r.id}`} className={r.id === current.id ? 'active' : ''}>
-            <span className="ti">{r.icon}</span><span>{r.short || r.label}</span>
+      <nav className="tabbar" aria-label="Разделы">
+        {ROUTES.filter((r) => r.tab).map((r) => (
+          <a key={r.id} href={`#/${r.id}`} className={r.id === current.id ? 'active' : ''} aria-current={r.id === current.id ? 'page' : undefined}>
+            <span className="ti" aria-hidden="true">{r.icon}</span><span>{r.short || r.label}</span>
           </a>
         ))}
+        <MoreMenu variant="tab" current={current.id} />
       </nav>
       <footer className="footer">
         Данные: <a href="https://tarkov.dev" target="_blank" rel="noreferrer">tarkov.dev</a> (открытый API).
@@ -87,20 +105,69 @@ export default function App() {
   );
 }
 
+/** «Ещё»: на компьютере — выпадающий список у меню, на телефоне — панель над нижними вкладками */
+function MoreMenu({ variant, current }: { variant: 'top' | 'tab'; current: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const items = ROUTES.filter((r) => (variant === 'top' ? !r.top : !r.tab));
+  const inside = items.find((r) => r.id === current);
+  useEffect(() => { setOpen(false); }, [current]);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: Event) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', close); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  const link = (r: Route) => (
+    <a key={r.id} href={`#/${r.id}`} className={`nav-more-item${r.id === current ? ' on' : ''}`} aria-current={r.id === current ? 'page' : undefined}
+      onClick={() => setOpen(false)}>
+      <span className="nav-more-ico" aria-hidden="true">{r.icon}</span>
+      <span className="grow"><b>{r.label}</b><span className="muted small">{r.hint}</span></span>
+    </a>
+  );
+  return (
+    <div className={`nav-more nav-more-${variant}`} ref={ref}>
+      <button className={`nav-more-btn${inside ? ' active' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open}
+        aria-label={`Ещё разделы${inside ? `, открыт: ${inside.label}` : ''}`}>
+        {variant === 'tab'
+          ? <><span className="ti" aria-hidden="true">⋯</span><span>{inside ? inside.label : 'Ещё'}</span></>
+          : <>{inside ? inside.label : 'Ещё'} <span aria-hidden="true">▾</span></>}
+      </button>
+      {open && (
+        <>
+          {variant === 'tab' && <div className="nav-more-backdrop" aria-hidden="true" onClick={() => setOpen(false)} />}
+          <div className="nav-more-menu">
+            {variant === 'tab' && <div className="nav-more-cap muted small">Ещё разделы</div>}
+            {items.map(link)}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function AuthButton() {
   const a = useAuth();
   if (a.status === 'off' || a.status === 'app') return null;
-  if (a.status === 'loading') return <span className="auth muted small"><span className="spinner" /></span>;
+  if (a.status === 'loading') return <span className="auth muted small" role="status"><span className="spinner" aria-hidden="true" /><span className="nav-sr">Проверяем вход</span></span>;
   if (a.status === 'signedOut' || (a.status === 'error' && !a.userId)) {
-    return <button className="btn small auth-btn" onClick={signIn} title={a.error || 'Вход для игроков из списка'}>Войти</button>;
+    return (
+      <button className="btn small auth-btn nav-login" onClick={() => { signIn().catch((e) => console.warn('signIn:', e)); }}
+        title={a.error ? `Ошибка входа: ${a.error}` : 'Вход через Discord: отметки квестов сохранятся в аккаунте и будут видны вашей команде'}>
+        Войти<span className="nav-wide"> через Discord</span>
+      </button>
+    );
   }
+  const why = a.status === 'denied' ? 'Этого аккаунта нет в списке игроков — отметки хранятся только на этом устройстве'
+    : a.status === 'error' ? `Не удалось проверить доступ: ${a.error}` : `Вы вошли как ${a.name}. Отметки сохраняются в аккаунте`;
   return (
-    <div className="auth" title={a.status === 'denied' ? 'У этого аккаунта нет доступа' : a.status === 'error' ? a.error : 'Вы вошли'}>
+    <div className="auth" title={why}>
       {a.avatar && <img src={a.avatar} alt="" width={24} height={24} className="avatar" />}
       <span className="auth-name">{a.name}</span>
       {a.status === 'denied' && <span className="badge bad">нет доступа</span>}
       {a.status === 'error' && <span className="badge bad">ошибка</span>}
-      <button className="linkbtn small" onClick={signOut}>Выйти</button>
+      <button className="linkbtn small nav-logout" onClick={signOut} aria-label={`Выйти из аккаунта ${a.name || ''}`.trim()}>Выйти</button>
     </div>
   );
 }

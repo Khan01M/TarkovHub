@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useData, State, Img, safeUrl } from '../ui';
 import { getGameMode, rub } from '../api';
 import { storedLevel, levelChanges } from '../questAvail';
 import { readRaids, locName } from '../logimport';
 import { useProgress, useLazyNumber } from '../progress';
 import { loadQuestData, useOpenTaskIds, QuestData, QuestTask, Gunsmith } from '../questdata';
+import { signIn } from '../auth';
 
 
 const OBJ_ICON: Record<string, string> = {
@@ -28,11 +29,37 @@ export default function Overview() {
   const open = useOpenTaskIds(progress.done);
   const openIds = open.ids;
   const current = useMemo(() => (data && openIds ? data.tasks.filter((t) => openIds.has(t.id)) : []), [data, openIds]);
+  // Ни одной отметки квеста — список «текущих» показывает всё, что открыто с самого начала игры
+  // Плашку показываем, только когда отметки точно загружены: пока проверяется вход и читается аккаунт,
+  // отметки ещё локальные — у вошедшего игрока она бы мигнула (тот же приём, что на главной)
+  const auth = progress.auth;
+  const who = progress.source === 'account' ? 'a:' + auth.userId : 'local';
+  const sawLoading = useRef('');
+  const [marksReady, setMarksReady] = useState(false);
+  useEffect(() => {
+    if (progress.source !== 'account') { setMarksReady(auth.status !== 'loading'); return; }
+    if (progress.loading) { sawLoading.current = who; setMarksReady(false); return; }
+    setMarksReady(sawLoading.current === who && !progress.loadError);
+  }, [who, progress.source, progress.loading, progress.loadError, auth.status]);
+  const noMarks = useMemo(() => marksReady && !!data && !data.tasks.some((t) => progress.done[t.id] || progress.done['a:' + t.id]),
+    [marksReady, data, progress.done]);
+  const canSignIn = auth.status === 'signedOut' || (auth.status === 'error' && !auth.userId);
 
   return (
     <section>
       <h1>Обзор</h1>
-      <p className="lead">Что сейчас в работе: текущие задания, куда идти, что взять с собой в рейд и какие собрать стволы для «Оружейника». Учитываются отмеченные выполненными квесты ({mode === 'pve' ? 'PvE' : 'PvP'}).</p>
+      <p className="lead">Ваш план на рейд: какие задания открыты сейчас, на какую карту идти, что взять с собой и какие стволы собрать для «Оружейника». Считается по квестам, которые вы отметили выполненными (режим {mode === 'pve' ? 'PvE' : 'PvP'}).</p>
+      {noMarks && !progress.loading && !progress.loadError && (
+        <div className="alert info nav-hint">
+          <b>Вы ещё не отметили ни одного квеста</b> — поэтому ниже все задания, которые открыты с самого начала игры.
+          Укажите уровень в поле ниже и отметьте сделанное на странице «Квесты» — список станет точным.
+          <div><a className="btn small" href="#/quests">Отметить квесты</a></div>
+        </div>
+      )}
+      {canSignIn && (
+        <p className="muted small nav-hint">Отметки сейчас хранятся только на этом устройстве. Войдите через Discord, чтобы сохранить их в аккаунте и видеть прогресс друзей.{' '}
+          <button className="linkbtn" onClick={() => { signIn().catch((e) => console.warn('signIn:', e)); }}>Войти</button></p>
+      )}
       <div className="toolbar level-bar">
         <label className="small">Мой уровень:{' '}
           <input className="search level-input" type="number" min={1} max={79} placeholder="любой" disabled={!progress.canEdit} {...levelInput} />
@@ -372,6 +399,7 @@ function CurrentList({ data, current }: { data: QuestData; current: QuestTask[] 
     <div className="card ov-block">
       <h3>Текущие задания ({current.length})</h3>
       <p className="muted small">Отмечать выполненными — на странице <a className="link" href="#/quests">Квесты</a>. Точки заданий — на <a className="link" href="#/maps">Картах</a> (слой «Квесты»).</p>
+      {current.length === 0 && <div className="muted small">Открытых заданий сейчас нет. Проверьте уровень выше и лояльность у торговцев на странице «Квесты» — возможно, следующие задания ждут повышения.</div>}
       {groups.map(([name, list]) => (
         <details key={name} open={groups.length <= 3}>
           <summary><b>{name}</b> <span className="muted small">· {list.length}</span></summary>
