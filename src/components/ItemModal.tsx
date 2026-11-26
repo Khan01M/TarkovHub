@@ -1,14 +1,39 @@
 // Окно предмета: большое изображение, характеристики, цены и где купить/продать.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Item } from '../api';
+import type { Item, Offer } from '../api';
 import { rub, num } from '../api';
 import { Img, safeUrl } from '../ui';
 import { caliberName, penClass } from '../pages/Weapons';
 
 const ASSETS = 'https://assets.tarkov.dev/';
 
+// ---------- барахолка в списках предложений ----------
+// Название барахолки ненадёжно: без перевода tr() вернёт сырой ключ.
+// loadItems кладёт её предложение первым: в sellFor — по lastLowPrice, в buyFor — по avg24hPrice ?? lastLowPrice
+// (у предметов без барахолки эти поля пустые). Появится в Offer поле flea — брать его.
+type FleaOffer = Offer & { flea?: boolean };
+const isFleaSell = (it: Item, o: FleaOffer, i: number) => o.flea ?? (i === 0 && !!it.lastLowPrice && o.priceRUB === it.lastLowPrice);
+const isFleaBuy = (it: Item, o: FleaOffer, i: number) => {
+  const p = it.avg24hPrice ?? it.lastLowPrice;
+  return o.flea ?? (i === 0 && !!p && o.priceRUB === p);
+};
+/** Цена покупки на барахолке: по текущим лотам, а не средняя за сутки */
+const fleaBuyPrice = (it: Item) => it.lastLowPrice || it.avg24hPrice || 0;
+/** Предложения «Купить» с ценой барахолки по текущим лотам */
+const buyOffers = (it: Item): Offer[] =>
+  (it.buyFor || []).map((o, i) => (isFleaBuy(it, o, i) ? { ...o, priceRUB: fleaBuyPrice(it) } : o));
+/** Предложения «Продать» только торговцам, без барахолки */
+export const traderSellOffers = (it: Item): Offer[] => (it.sellFor || []).filter((o, i) => !isFleaSell(it, o, i));
+/** Цена покупки для списков: барахолка, а если там нельзя — самая дешёвая у торговцев */
+export function buyPrice(it: Item): number | null {
+  // барахолка — только если там правда можно купить (нет noFlea, барахолка включена)
+  if ((it.buyFor || []).some((o, i) => isFleaBuy(it, o, i))) return fleaBuyPrice(it);
+  const p = buyOffers(it).map((o) => o.priceRUB).filter((x) => x > 0);
+  return p.length ? Math.min(...p) : null;
+}
+
 /** Ссылка на лучшее изображение: для оружия — собранная версия (пресет), иначе сам предмет */
-export function bigImageCandidates(it: Item): string[] {
+function bigImageCandidates(it: Item): string[] {
   const id = it.gun?.preset || it.id;
   return [`${ASSETS}${id}-image.webp`, `${ASSETS}${id}-512.webp`, `${ASSETS}${it.id}-image.webp`, it.iconLink || ''].filter(Boolean);
 }
@@ -38,7 +63,7 @@ export default function ItemModal({ item, allItems, onClose, onOpen }: { item: I
   }, [onClose]);
 
   const g = item.gun, a = item.ammo;
-  const buy = [...item.buyFor].sort((x, y) => x.priceRUB - y.priceRUB);
+  const buy = buyOffers(item).sort((x, y) => x.priceRUB - y.priceRUB);
   const sell = [...item.sellFor].sort((x, y) => y.priceRUB - x.priceRUB);
   // Для оружия — патроны этого калибра, лучшие по пробитию
   const ammo = useMemo(() => (g && allItems ? allItems.filter((x) => x.ammo?.caliber === g.caliber).sort((x, y) => y.ammo!.penetrationPower - x.ammo!.penetrationPower).slice(0, 8) : []), [g, allItems]);

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useData, State, Search, norm, Img } from '../ui';
 import { rub, num, loadItems } from '../api';
-import ItemModal from '../components/ItemModal';
+import ItemModal, { traderSellOffers } from '../components/ItemModal';
 
 
 const CATS: [string, string][] = [
@@ -15,8 +15,6 @@ const SORTS: [string, string][] = [
   ['change', 'Изменение за 48ч'], ['name', 'Название'],
 ];
 
-const isFlea = (v?: string) => !!v && (v === 'Flea Market' || v === 'FleaMarket' || norm(v).includes('барахолк'));
-
 export default function Market() {
   const { data, error, loading } = useData(loadItems);
   const [q, setQ] = useState('');
@@ -27,7 +25,7 @@ export default function Market() {
 
   const rows = useMemo(() => {
     const items = (data?.items || []).map((it: any) => {
-      const traders = [...(it.sellFor || [])].filter((s: any) => !isFlea(s.vendor?.name));
+      const traders = traderSellOffers(it);
       const best = traders.sort((a: any, b: any) => b.priceRUB - a.priceRUB)[0];
       const flea = it.avg24hPrice || it.lastLowPrice || 0;
       const slots = Math.max(1, (it.width || 1) * (it.height || 1));

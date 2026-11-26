@@ -3,3 +3,6 @@ dist
 release
 android
 .DS_Store
+.env*
+*.keystore
+*.jks
