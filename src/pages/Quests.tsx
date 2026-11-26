@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useData, State, Search, norm, safeUrl } from '../ui';
 import { num, loadTasks, getGameMode, GameMode } from '../api';
-import { useProgress, useTeam, Teammate, readLegacy, archiveLegacy, addLocal, readLocal, uploadMarks } from '../progress';
+import { useProgress, useTeam, Teammate, readLegacy, archiveLegacy, addLocal, readLocal, uploadMarks, useLazyNumber } from '../progress';
 import { signIn } from '../auth';
-import { questAvailability, guessLevel, guessLoyalty, storedLevel, storedLL, levelChanges, llChanges } from '../questAvail';
+import { forFaction, playerLevel, playerLL, availabilityFor, storedLevel, levelChanges, llChanges } from '../questAvail';
 import { parseLogs, marksFromLogs, LogResult, saveRaids } from '../logimport';
 import type { Task } from '../api';
 
@@ -49,17 +49,24 @@ export default function Quests() {
   const [faction, setFaction] = useStored('questsFaction', '');
 
   // Квесты только для другой фракции (BEAR/USEC) прячем, если фракция выбрана
-  const tasks = useMemo(() => (data?.tasks || []).filter((t) => !faction || !t.faction || t.faction === faction), [data, faction]);
-  // Указанные уровень/ЛЛ сохраняются с прогрессом; у товарища видны его значения
+  const tasks = useMemo(() => forFaction(data?.tasks || [], faction), [data, faction]);
+  // Указанные уровень/ЛЛ сохраняются с прогрессом; у товарища видны его значения.
+  // Доступность считается тем же правилом, что в «Обзоре» и «Картах» (questAvail.availabilityFor).
   const setByUser = storedLevel(done);
-  const level = setByUser || guessLevel(tasks, done);
-  const llOf = (tr: string) => storedLL(done, tr) || guessLoyalty(tasks, done, tr);
-  const setLevel = (n: number) => progress.setMarks(levelChanges(myDone, n));
-  const setLL = (tr: string, n: number) => progress.setMarks(llChanges(myDone, tr, n));
-  const avail = useMemo(() => questAvailability(tasks, done, level, llOf), [tasks, done, level]); // eslint-disable-line react-hooks/exhaustive-deps
+  const level = playerLevel(tasks, done);
+  const llOf = (tr: string) => playerLL(tasks, done, tr);
+  const keep = () => { /* ошибку показывает панель прогресса */ };
+  // Уровень сохраняем не на каждый символ: по уходу с поля, Enter или паузе ~600 мс
+  const levelInput = useLazyNumber(level, (s) => {
+    if (s.trim() === '') return; // пустое поле — вернётся прежнее значение
+    const n = Math.max(1, Math.min(79, Math.floor(Number(s)) || 1));
+    if (n !== storedLevel(myDone)) progress.setMarks((cur) => levelChanges(cur, n)).catch(keep);
+  }, 600, readOnly || !progress.canEdit);
+  const setLL = (tr: string, n: number) => progress.setMarks((cur) => llChanges(cur, tr, n)).catch(keep);
+  const avail = useMemo(() => availabilityFor(tasks, done), [tasks, done]);
   const onlyOpen = scope === 'open';
   // Торговцы в игровом порядке, только те, у кого есть квесты
-  const traderInfo = useMemo(() => (data?.traders || []).filter((t) => tasks.some((x) => x.trader === t.name)), [data]);
+  const traderInfo = useMemo(() => (data?.traders || []).filter((t) => tasks.some((x) => x.trader === t.name)), [data, tasks]);
   const traders = traderInfo.map((t) => t.name);
   const maps = useMemo(() => Array.from(new Set(tasks.map((t) => t.map).filter(Boolean))).sort() as string[], [tasks]);
 
@@ -101,7 +108,7 @@ export default function Quests() {
   const card = (t: (typeof tasks)[number]) => (
     <div key={t.id} className={`card quest ${done[t.id] ? 'done' : ''}`}>
       <div className="row-main" onClick={() => setOpen(open === t.id ? null : t.id)}>
-        <input type="checkbox" checked={!!done[t.id]} onChange={() => !readOnly && toggle(t.id)} onClick={(e) => e.stopPropagation()} aria-label="Выполнено" disabled={progress.loading || readOnly} />
+        <input type="checkbox" checked={!!done[t.id]} onChange={() => !readOnly && toggle(t.id)} onClick={(e) => e.stopPropagation()} aria-label="Выполнено" disabled={!progress.canEdit || readOnly} />
         <div className="grow">
           <div className="title">
             {t.name} {t.kappaRequired && <span className="badge">Каппа</span>}
@@ -132,7 +139,7 @@ export default function Quests() {
               return (
                 <li key={o.id} className={on ? 'on' : ''}>
                   <label>
-                    <input type="checkbox" checked={on} disabled={progress.loading || readOnly || !!done[t.id]} onChange={() => toggle(k)} />
+                    <input type="checkbox" checked={on} disabled={!progress.canEdit || readOnly || !!done[t.id]} onChange={() => toggle(k)} />
                     <span>{o.description}{o.optional ? ' (необязательно)' : ''}{o.give?.fir ? <span className="badge fir" title="Только найденное в рейде">FiR</span> : null}</span>
                   </label>
                   {k in unsaved && <span className="badge bad">не сохранено</span>}
@@ -178,7 +185,7 @@ export default function Quests() {
           <div className="muted small">Как во вкладке «Задания» у торговцев: квесты, которые можно взять прямо сейчас, — по уровню ЧВК, лояльности и выполненным квестам.</div>
           <div className="me-stats">
             <label>Уровень ЧВК
-              <input type="number" min={1} max={79} value={level} disabled={readOnly} onChange={(e) => setLevel(Math.max(1, Math.min(79, Number(e.target.value) || 1)))} />
+              <input type="number" min={1} max={79} disabled={readOnly || !progress.canEdit} {...levelInput} />
             </label>
             {activeTrader && (
               <span className="ll-pick">ЛЛ у торговца {activeTrader}:
@@ -274,12 +281,17 @@ function LogImport({ progress, tasks, mode }: { progress: Progress; tasks: Task[
       for (const id of r.finished) { ch['a:' + id] = false; ch['f:' + id] = false; }
       for (const id of r.started) if (names[id] && !ch[id]) { ch['a:' + id] = true; ch['f:' + id] = false; }
       for (const id of r.failed) if (names[id]) { ch['f:' + id] = true; ch['a:' + id] = false; }
-      progress.setMarks(ch);
+      // История рейдов — только на это устройство, от связи не зависит
       const raids = r.raids.length ? saveRaids(r.mode, r.raids) : 0;
-      setMsg(`Готово (${r.mode === 'pve' ? 'PvE' : 'PvP'}): выполнено ${ids.length}, взято ${r.started.filter((id) => names[id]).length}, провалено ${r.failed.filter((id) => names[id]).length}` +
-        (raids ? `, рейдов в истории: ${raids} (см. Обзор)` : '') + '.');
+      // В аккаунте — пакетная запись; «Готово» пишем только после ответа сервера
+      const notAccepted = await progress.setMarks(ch);
+      setMsg(`${notAccepted ? 'Сохранено не всё' : 'Готово'} (${r.mode === 'pve' ? 'PvE' : 'PvP'}): выполнено ${ids.length}, взято ${r.started.filter((id) => names[id]).length}, провалено ${r.failed.filter((id) => names[id]).length}` +
+        (raids ? `, рейдов в истории: ${raids} (см. Обзор)` : '') + '.' +
+        (notAccepted ? ` Сервер не принял отметок: ${notAccepted} — подробности в панели прогресса.` : ''));
       setRes(null);
-    } catch (err: any) { setMsg('Не удалось сохранить: ' + (err?.message || err) + '. Попробуйте ещё раз.'); } finally { setBusy(false); }
+    } catch (err: any) {
+      setMsg('Не удалось сохранить в аккаунт: ' + (err?.message || err) + '. Отметки остались на экране и на этом устройстве — нажмите «Повторить» в панели прогресса, когда появится связь.');
+    } finally { setBusy(false); }
   };
 
   return (
@@ -312,7 +324,7 @@ function LogImport({ progress, tasks, mode }: { progress: Progress; tasks: Task[
               {r.mode !== mode ? (
                 <span className="small"><b>Переключите режим на {r.mode === 'pve' ? 'PvE' : 'PvP'}</b> вверху страницы и выберите папку ещё раз.</span>
               ) : (
-                <button className="btn small" disabled={busy} onClick={() => apply(r, fresh)}>Применить к {r.mode === 'pve' ? 'PvE' : 'PvP'}</button>
+                <button className="btn small" disabled={busy || !progress.canEdit} onClick={() => apply(r, fresh)}>Применить к {r.mode === 'pve' ? 'PvE' : 'PvP'}</button>
               )}
               <button className="btn ghost small" disabled={busy} onClick={() => setRes(null)}>Отмена</button>
             </div>
@@ -383,12 +395,15 @@ function ProgressPanel({ progress, mode }: { progress: Progress; mode: GameMode 
 
       {progress.loading && <div className="state small"><span className="spinner" /> Загружаю прогресс из аккаунта…</div>}
       {progress.loadError && (
-        <div className="alert">Не удалось загрузить прогресс из аккаунта: {progress.loadError}
+        <div className="alert">Не удалось загрузить прогресс из аккаунта: {progress.loadError}. Пока он не загружен, отметки менять нельзя.
           <button className="btn small" onClick={progress.reload}>Повторить</button></div>
       )}
       {progress.saveError && (
         <div className="alert">Не удалось сохранить отметок: {Object.keys(progress.unsaved).length}. Они остались на экране, но в аккаунт не попали. ({progress.saveError})
           <button className="btn small" onClick={progress.retry}>Повторить</button></div>
+      )}
+      {progress.rejected > 0 && (
+        <div className="alert">Не удалось сохранить отметок: {progress.rejected} — сервер их не принимает ({progress.rejectError}). Повтор не поможет; если повторяется — сообщите администратору.</div>
       )}
 
       {legacy.length > 0 && !progress.loading && (auth.status !== 'loading') && (

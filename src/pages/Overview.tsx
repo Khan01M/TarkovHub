@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useData, State, Img, safeUrl } from '../ui';
-import { getGameMode, rub, loadTasks } from '../api';
-import { questAvailability, guessLevel, guessLoyalty, storedLevel, storedLL, levelChanges } from '../questAvail';
+import { getGameMode, rub } from '../api';
+import { storedLevel, levelChanges } from '../questAvail';
 import { readRaids, locName } from '../logimport';
-import { useProgress } from '../progress';
-import { loadQuestData, currentTasks, QuestData, QuestTask, Gunsmith } from '../questdata';
+import { useProgress, useLazyNumber } from '../progress';
+import { loadQuestData, useOpenTaskIds, QuestData, QuestTask, Gunsmith } from '../questdata';
 
 
 const OBJ_ICON: Record<string, string> = {
@@ -18,25 +18,16 @@ export default function Overview() {
   const progress = useProgress(mode);
   // Уровень и лояльность — общие со страницей «Квесты» (хранятся вместе с прогрессом)
   const level = storedLevel(progress.done);
-  const setLevel = (v: number) => progress.setMarks(levelChanges(progress.done, v));
+  // Пустое поле — «любой» (уровень оценивается по квестам); сохраняем по уходу с поля, Enter или паузе
+  const levelInput = useLazyNumber(level, (s) => {
+    const v = s.trim() === '' ? 0 : Math.max(0, Math.min(79, Math.floor(Number(s)) || 0));
+    if (v !== storedLevel(progress.done)) progress.setMarks((cur) => levelChanges(cur, v)).catch(() => { /* saveError */ });
+  }, 600, !progress.canEdit);
 
-  const tasksD = useData(loadTasks);
-  // Текущие = открытые сейчас у торговцев (как на странице «Квесты» в режиме «Открытые сейчас»)
-  const openIds = useMemo(() => {
-    const all = tasksD.data?.tasks;
-    if (!all) return null;
-    let faction = '';
-    try { faction = localStorage.getItem('questsFaction') || ''; } catch { /* ignore */ }
-    const tasks = all.filter((t) => !faction || !t.faction || t.faction === faction);
-    const lv = level || guessLevel(tasks, progress.done);
-    const av = questAvailability(tasks, progress.done, lv, (tr) => storedLL(progress.done, tr) || guessLoyalty(tasks, progress.done, tr));
-    return new Set(tasks.filter((t) => av[t.id].state === 'open').map((t) => t.id));
-  }, [tasksD.data, progress.done, level, mode]);
-  const current = useMemo(() => {
-    if (!data) return [];
-    const base = currentTasks(data, progress.done, level || 999);
-    return openIds ? base.filter((t) => openIds.has(t.id)) : base;
-  }, [data, progress.done, level, openIds]);
+  // Текущие = открытые сейчас у торговцев (то же правило, что на странице «Квесты»)
+  const open = useOpenTaskIds(progress.done);
+  const openIds = open.ids;
+  const current = useMemo(() => (data && openIds ? data.tasks.filter((t) => openIds.has(t.id)) : []), [data, openIds]);
 
   return (
     <section>
@@ -44,22 +35,29 @@ export default function Overview() {
       <p className="lead">Что сейчас в работе: текущие задания, куда идти, что взять с собой в рейд и какие собрать стволы для «Оружейника». Учитываются отмеченные выполненными квесты ({mode === 'pve' ? 'PvE' : 'PvP'}).</p>
       <div className="toolbar level-bar">
         <label className="small">Мой уровень:{' '}
-          <input className="search level-input" type="number" min={1} max={79} value={level || ''} placeholder="любой"
-            onChange={(e) => setLevel(Math.max(0, Math.min(79, Number(e.target.value) || 0)))} />
+          <input className="search level-input" type="number" min={1} max={79} placeholder="любой" disabled={!progress.canEdit} {...levelInput} />
         </label>
         <span className="muted small">Текущие задания — те, что открыты сейчас у торговцев: по уровню, лояльности и выполненным квестам. Лояльность и фракция задаются на странице <a className="link" href="#/quests">Квесты</a>.</span>
       </div>
-      <State loading={loading || progress.loading} error={error} />
+      {progress.loadError && (
+        <div className="alert">Не удалось загрузить прогресс из аккаунта: {progress.loadError}. Текущие задания могут быть неточными.
+          <button className="btn small" onClick={progress.reload}>Повторить</button></div>
+      )}
+      <State loading={loading || progress.loading || open.loading} error={error || (open.error && `список квестов не загрузился (${open.error}) — текущие задания не посчитать`)} />
       {data && (
         <>
           <div className="ov-grid">
-            <MapPriority data={data} current={current} />
+            {openIds && <MapPriority data={data} current={current} />}
             <GoonTracker data={data} />
           </div>
           <RaidHistory mode={mode} />
-          <Gunsmiths data={data} current={current} />
-          <RaidItems data={data} current={current} done={progress.done} />
-          <CurrentList data={data} current={current} />
+          {openIds && (
+            <>
+              <Gunsmiths data={data} current={current} />
+              <RaidItems data={data} current={current} done={progress.done} />
+              <CurrentList data={data} current={current} />
+            </>
+          )}
         </>
       )}
     </section>

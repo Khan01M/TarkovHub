@@ -1,6 +1,9 @@
 // Данные для «Обзора»: подробности квестов (точки на картах, ключи, маркеры, закладки),
 // сборки «Оружейника» и отчёты о Гонщиках (группа Рыцаря). Всё считается из json.tarkov.dev.
-import { load, datasetRaw, getGameMode } from './api';
+import { useMemo } from 'react';
+import { load, datasetRaw, getGameMode, loadTasks } from './api';
+import { useData } from './ui';
+import { openTaskIds } from './questAvail';
 
 export type Point = { x: number; z: number };
 export type ItemRef = { id: string; name: string; shortName: string; icon?: string; price?: number; sellers: string[] };
@@ -148,9 +151,16 @@ function compatibleWith(weaponId: string, all: Record<string, any>): Set<string>
   return out;
 }
 
-/** Текущие задания: не выполнены, предыдущие выполнены, уровень подходит */
-export function currentTasks(data: QuestData, done: Record<string, boolean>, level: number) {
-  return data.tasks.filter((t) => !done[t.id]
-    && t.minPlayerLevel <= level
-    && t.requires.every((r) => done[r.id] || !r.status.includes('complete')));
+/** Текущие задания для «Обзора» и «Карт» — те же «открытые сейчас», что на странице «Квесты»:
+ *  уровень и лояльность из отметок (или оценка), фракция из настроек «Квестов».
+ *  ids = null, пока список квестов не загружен (или не загрузился — см. error). */
+export function useOpenTaskIds(done: Record<string, boolean>) {
+  const { data, loading, error } = useData(loadTasks);
+  const ids = useMemo(() => {
+    if (!data) return null;
+    let faction = '';
+    try { faction = localStorage.getItem('questsFaction') || ''; } catch { /* ignore */ }
+    return openTaskIds(data.tasks, done, faction);
+  }, [data, done]);
+  return { ids, loading, error };
 }

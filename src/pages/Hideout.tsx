@@ -75,6 +75,10 @@ export default function Hideout() {
         {progress.source === 'account' ? <>Уровни модулей сохраняются в аккаунте <b>{progress.auth.name}</b>. </> : <>Уровни модулей сохраняются на этом устройстве. </>}
         Запас предметов («есть») хранится на этом устройстве.
       </div>
+      {progress.loadError && (
+        <div className="alert">Не удалось загрузить прогресс из аккаунта: {progress.loadError}. Пока он не загружен, отметки менять нельзя.
+          <button className="btn small" onClick={progress.reload}>Повторить</button></div>
+      )}
       {progress.saveError && <div className="alert">Не удалось сохранить: {progress.saveError} <button className="btn small" onClick={progress.retry}>Повторить</button></div>}
       <div className="tabs">
         <button className={tab === 'stations' ? 'on' : ''} onClick={() => setTab('stations')}>Модули</button>
@@ -82,7 +86,7 @@ export default function Hideout() {
       </div>
       <State loading={hideout.loading || (tab === 'items' && (tasks.loading || items.loading))} error={hideout.error || tasks.error || items.error} />
       {hideout.data && tab === 'stations' && (
-        <Stations stations={stations} stationById={stationById} built={built} setBuilt={setBuilt} byId={byId} have={have} onItem={setOpen} disabled={progress.loading} />
+        <Stations stations={stations} stationById={stationById} built={built} setBuilt={setBuilt} byId={byId} have={have} onItem={setOpen} disabled={!progress.canEdit} />
       )}
       {hideout.data && tasks.data && items.data && tab === 'items' && (
         <Needs stations={stations} built={built} tasks={tasks.data.tasks} done={done} byId={byId} have={have} setHave={setHave} onItem={setOpen} />
