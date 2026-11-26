@@ -29,13 +29,17 @@ type Dict = Record<string, string>;
 const FETCH_TIMEOUT_MS = 20 * 1000; // items весит ~1.8 МБ сжатым — на медленной сети нужен запас
 const FALLBACK_TIMEOUT_MS = 10 * 1000;
 
-async function fetchJson(url: string, cache: RequestCache, timeout: number): Promise<any> {
+// stale — ответ не с сервера, а запасная копия: из HTTP-кэша браузера (второй заход, force-cache)
+// или из кэша service worker (он ставит заголовок X-TH-Cache: 1, см. public/sw.js)
+type Fetched = { data: any; stale: boolean };
+async function fetchJson(url: string, cache: RequestCache, timeout: number): Promise<Fetched> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeout);
   try {
     const r = await fetch(url, { headers: { Accept: 'application/json' }, cache, signal: ctl.signal });
     if (!r.ok) throw new Error(`Сервер ответил ${r.status}`);
-    return await r.json(); // таймаут действует и на чтение тела
+    const stale = cache === 'force-cache' || r.headers?.get('X-TH-Cache') === '1';
+    return { data: await r.json(), stale }; // таймаут действует и на чтение тела
   } catch (e: any) {
     if (e?.name === 'AbortError') throw new Error('Сервер не ответил вовремя');
     throw e;
@@ -44,19 +48,27 @@ async function fetchJson(url: string, cache: RequestCache, timeout: number): Pro
   }
 }
 
-// Сырые ответы держим в памяти не дольше TTL_MS, иначе повторная загрузка взяла бы старый ответ
-const raw = new Map<string, { t: number; p: Promise<any> }>();
+// Сырые ответы держим в памяти не дольше TTL_MS, иначе повторная загрузка взяла бы старый ответ.
+// Запасную копию — не дольше STALE_MS: как только сеть вернётся, данные обновятся.
+const STALE_MS = 60 * 1000;
+const raw = new Map<string, { t: number; p: Promise<Fetched>; stale?: boolean }>();
+
+// Счётчик выдач запасных копий: load() по нему понимает, что результат собран не из свежих данных
+let staleHits = 0;
 
 function getJson(path: string): Promise<any> {
-  const hit = raw.get(path);
-  if (hit && Date.now() - hit.t < TTL_MS) return hit.p;
-  const url = BASE + path;
-  const p = fetchJson(url, 'no-cache', FETCH_TIMEOUT_MS)
-    .catch(() => fetchJson(url, 'force-cache', FALLBACK_TIMEOUT_MS)); // одна попытка: офлайн-копия
-  const entry = { t: Date.now(), p };
-  p.catch(() => { if (raw.get(path) === entry) raw.delete(path); }); // при ошибке разрешаем повторить запрос
-  raw.set(path, entry);
-  return p;
+  let hit = raw.get(path);
+  if (!hit || Date.now() - hit.t >= (hit.stale ? STALE_MS : TTL_MS)) {
+    const url = BASE + path;
+    const p = fetchJson(url, 'no-cache', FETCH_TIMEOUT_MS)
+      .catch(() => fetchJson(url, 'force-cache', FALLBACK_TIMEOUT_MS)); // одна попытка: офлайн-копия
+    const entry: { t: number; p: Promise<Fetched>; stale?: boolean } = { t: Date.now(), p };
+    p.then((f) => { entry.stale = f.stale; }, () => { if (raw.get(path) === entry) raw.delete(path); }); // при ошибке разрешаем повторить запрос
+    raw.set(path, entry);
+    hit = entry;
+  }
+  // Считаем каждую выдачу копии, а не только первую загрузку: повторный вызов из памяти тоже «несвежий»
+  return hit.p.then((f) => { if (f.stale) staleHits++; return f.data; });
 }
 
 // Счётчик неудачных загрузок перевода: load() по нему понимает, что результат без русских названий
@@ -159,7 +171,7 @@ export function load<T>(name: string, loader: () => Promise<T>): Promise<T> {
     return p;
   }
   const forget = () => { if (done.get(key) === entry) done.delete(key); };
-  const fails = ruFails;
+  const fails = ruFails, stales = staleHits;
   const p = loader()
     .then((d) => {
       if (ruFails !== fails) {
@@ -167,6 +179,12 @@ export function load<T>(name: string, loader: () => Promise<T>): Promise<T> {
         // но не сохраняем и не запоминаем, чтобы следующий вызов попробовал снова
         forget();
         return cacheGet(key, true) ?? d;
+      }
+      if (staleHits !== stales) {
+        // Собрано из запасной копии (нет сети): показываем, но не сохраняем как свежее —
+        // иначе после возврата сети старые цены жили бы ещё TTL_MS. В памяти держим не дольше STALE_MS.
+        entry.t = Date.now() - TTL_MS + STALE_MS;
+        return d;
       }
       cacheSet(key, d);
       return d;

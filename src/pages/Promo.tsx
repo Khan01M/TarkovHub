@@ -55,12 +55,13 @@ function usePromo() {
   const [live, setLive] = useState(false);
   useEffect(() => {
     const url = location.hostname.endsWith('github.io') ? './promocodes.json' : LIVE_URL;
+    let saved = false; // X-TH-Cache: 1 — без сети ответил service worker своей копией (public/sw.js)
     fetch(url, { cache: 'no-cache' })
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((r) => (r.ok ? ((saved = r.headers.get('X-TH-Cache') === '1'), r.json()) : Promise.reject()))
       .then((d: unknown) => {
         const clean = cleanPromo(d);
         // Если с сайта пришёл мусор без единого годного кода — остаёмся на встроенной копии
-        if (clean && (clean.codes.length > 0 || (d as any).codes.length === 0)) { setData(clean); setLive(true); }
+        if (clean && (clean.codes.length > 0 || (d as any).codes.length === 0)) { setData(clean); setLive(!saved); }
       })
       .catch(() => { /* остаёмся на встроенной копии */ });
   }, []);

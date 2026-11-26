@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { Component, lazy, ReactNode, Suspense, useEffect, useMemo, useState } from 'react';
 import BodyMap from '../components/BodyMap';
 import { PARTS, PART_RU, PMC, PMC_TOTAL, hpOf, ratio, colorFor, total } from '../health';
 import { useData, State, Search, norm, Img } from '../ui';
@@ -7,6 +7,22 @@ import RefEmpty from '../components/RefEmpty';
 
 // three.js тяжёлый — грузим его только на странице босса
 const Boss3D = lazy(() => import('../components/Boss3D'));
+
+// Без сети файл с 3D может не загрузиться (если раньше его не открывали) — тогда падает только этот блок,
+// а остальная страница босса (здоровье, снаряжение, охрана) остаётся
+class Boss3DBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(e: unknown) { console.warn('3D-модель босса:', e); }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="boss3d"><div className="state small">
+        {navigator.onLine === false ? '3D-модель недоступна без сети' : '3D-модель не загрузилась — обновите страницу'}
+      </div></div>
+    );
+  }
+}
 
 
 // Короткие подсказки по главным боссам (ключ — часть normalizedName)
@@ -245,9 +261,11 @@ function BossPage({ boss: b, maxHp }: { boss: any; maxHp: Record<string, number>
         </div>
         <div className="card boss-hero-3d">
           {b.health?.length > 0 ? (
-            <Suspense fallback={<div className="boss3d"><div className="state small"><span className="spinner" /> Загружаю 3D…</div></div>}>
-              <Boss3D name={b.name} health={b.health} gear={gear3d} />
-            </Suspense>
+            <Boss3DBoundary>
+              <Suspense fallback={<div className="boss3d"><div className="state small"><span className="spinner" /> Загружаю 3D…</div></div>}>
+                <Boss3D name={b.name} health={b.health} gear={gear3d} />
+              </Suspense>
+            </Boss3DBoundary>
           ) : <div className="state">Данных о здоровье нет</div>}
         </div>
       </div>
