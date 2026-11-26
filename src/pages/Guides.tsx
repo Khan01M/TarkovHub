@@ -3,7 +3,7 @@ import { GUIDES } from '../guides';
 import { Search, norm, safeUrl } from '../ui';
 
 // Актуальное (ивент, сезон) — наверху списка
-const TOP = ['Ивент', 'Сезон'];
+const TOP = ['Патчи', 'Сезон', 'Ивент'];
 const rank = (t: string) => (TOP.includes(t) ? TOP.indexOf(t) : TOP.length);
 
 export default function Guides() {
