@@ -300,7 +300,7 @@ function LogImport({ progress, tasks, mode }: { progress: Progress; tasks: Task[
         {busy ? 'Читаю логи…' : 'Импорт из логов игры'}
         <input type="file" multiple hidden disabled={busy} onChange={pick} {...({ webkitdirectory: '', directory: '' } as any)} />
       </label>
-      <span className="muted small"> Выберите папку <b>Logs</b> в папке игры (например, D:\Battlestate Games\Escape from Tarkov\Logs) — сайт отметит выполненные квесты. Файлы никуда не отправляются.</span>
+      <span className="muted small"> Выберите папку <b>Logs</b> в папке игры (лаунчер BSG: <code>Battlestate Games\Escape from Tarkov\Logs</code>, Steam: <code>steamapps\common\Escape from Tarkov\build\Logs</code>) — сайт отметит выполненные квесты. Файлы никуда не отправляются.</span>
       {msg && <div className="alert info">{msg}</div>}
       {res?.map((r) => {
         const m = marksFromLogs(r, tasks);
