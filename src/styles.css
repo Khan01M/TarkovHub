@@ -721,3 +721,14 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 14px; }
   .im-hero { min-height: 0; padding: 8px; }
   .im-img { max-height: 26vh; }
 }
+
+/* ===== pwa ===== */
+/* Плашка «нет сети»: внизу слева на компьютере, над нижними вкладками на телефоне */
+.pwa-offline { position: fixed; left: 16px; bottom: 16px; z-index: 39; display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: 8px; background: var(--panel2); border: 1px solid var(--line); color: var(--text);
+  font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.35); pointer-events: none; transition: opacity .2s; }
+.pwa-offline:not(.on) { opacity: 0; padding: 0; border: 0; box-shadow: none; }
+.pwa-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); flex-shrink: 0; }
+@media (max-width: 860px) {
+  .pwa-offline { left: 12px; right: 12px; bottom: calc(66px + env(safe-area-inset-bottom)); justify-content: center; }
+}
