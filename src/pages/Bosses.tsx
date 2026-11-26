@@ -102,7 +102,8 @@ const SLOT_RU: Record<string, string> = {
 const WEAPON_SLOTS = ['FirstPrimaryWeapon', 'SecondPrimaryWeapon', 'Holster', 'Scabbard'];
 
 // Маршрут: #/bosses — список, #/bosses/<имя> — страница босса
-const routeBoss = () => decodeURIComponent(location.hash.replace(/^#\/?/, '').split('/')[1] || '');
+// Битый hash (например, %E0%A4%A) — считаем, что босс не выбран
+const routeBoss = () => { try { return decodeURIComponent(location.hash.replace(/^#\/?/, '').split('/')[1] || ''); } catch { return ''; } };
 const noteFor = (n: string) => NOTES[NOTE_KEYS[n] || n];
 // Порядок: сначала основные боссы (с подсказками), потом остальные по шансу
 const MAIN = Object.keys(NOTES);

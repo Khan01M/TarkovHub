@@ -22,15 +22,41 @@ const STATUS: Record<Code['status'], { label: string; cls: string }> = {
   expired: { label: 'Истёк', cls: 'bad' },
 };
 
+// Файл с сайта читают все установленные EXE/APK, поэтому доверять ему нельзя:
+// берём только записи с понятными полями, остальные молча отбрасываем.
+const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
+const has = (o: object, k: unknown) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
+function cleanCode(x: any): Code | null {
+  if (!x || typeof x !== 'object') return null;
+  const code = str(x.code)?.trim();
+  if (!code) return null;
+  if (!has(STATUS, x.status) || !has(MODE, x.mode)) return null;
+  return {
+    code, mode: x.mode, status: x.status, rewards: str(x.rewards) || '',
+    added: str(x.added), event: str(x.event), noteText: str(x.noteText),
+  };
+}
+function cleanPromo(d: any): PromoFile | null {
+  if (!d || typeof d !== 'object' || !Array.isArray(d.codes)) return null;
+  const seen = new Set<string>();
+  const codes = (d.codes as unknown[]).map(cleanCode).filter((c): c is Code => {
+    if (!c || seen.has(c.code)) return false; // повтор кода сломал бы key в списке
+    seen.add(c.code); return true;
+  });
+  return { updated: str(d.updated) || '', note: str(d.note) || '', codes };
+}
+
 function usePromo() {
-  const [data, setData] = useState<PromoFile>(bundled as PromoFile);
+  const [data, setData] = useState<PromoFile>(() => cleanPromo(bundled) || { updated: '', note: '', codes: [] });
   const [live, setLive] = useState(false);
   useEffect(() => {
     const url = location.hostname.endsWith('github.io') ? './promocodes.json' : LIVE_URL;
     fetch(url, { cache: 'no-cache' })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d: PromoFile) => {
-        if (Array.isArray(d?.codes)) { setData(d); setLive(true); }
+      .then((d: unknown) => {
+        const clean = cleanPromo(d);
+        // Если с сайта пришёл мусор без единого годного кода — остаёмся на встроенной копии
+        if (clean && (clean.codes.length > 0 || (d as any).codes.length === 0)) { setData(clean); setLive(true); }
       })
       .catch(() => { /* остаёмся на встроенной копии */ });
   }, []);
@@ -38,7 +64,7 @@ function usePromo() {
 }
 
 function useUsed() {
-  const [used, setUsed] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem('usedCodes') || '{}'); } catch { return {}; } });
+  const [used, setUsed] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem('usedCodes') || '{}') || {}; } catch { return {}; } });
   const toggle = (c: string) => setUsed((u) => {
     const n = { ...u, [c]: !u[c] };
     try { localStorage.setItem('usedCodes', JSON.stringify(n)); } catch { /* ignore */ }
@@ -111,8 +137,8 @@ export default function Promo() {
               <button className="btn small" onClick={() => copy(c.code)}>{copied === c.code ? 'Скопировано ✓' : 'Копировать'}</button>
             </div>
             <div className="promo-tags">
-              <span className={`badge ${STATUS[c.status].cls}`}>{STATUS[c.status].label}</span>
-              <span className="tag">{MODE[c.mode]}</span>
+              <span className={`badge ${(STATUS[c.status] ?? STATUS.check).cls}`}>{(STATUS[c.status] ?? STATUS.check).label}</span>
+              <span className="tag">{MODE[c.mode] ?? MODE.unknown}</span>
               {c.event && <span className="badge ll">{c.event}</span>}
             </div>
             <div className="small">{c.rewards}</div>

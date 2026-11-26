@@ -10,6 +10,7 @@ import Guides from './pages/Guides';
 import Promo from './pages/Promo';
 import Overview from './pages/Overview';
 import Hideout from './pages/Hideout';
+import ErrorBoundary from './components/ErrorBoundary';
 import { useAuth, signIn, signOut } from './auth';
 import { THEMES, getTheme, setTheme, ThemeId } from './theme';
 
@@ -64,7 +65,9 @@ export default function App() {
         </div>
       </header>
       <main className="content" key={current.id + mode}>
-        <Page />
+        <ErrorBoundary key={current.id + mode}>
+          <Page />
+        </ErrorBoundary>
       </main>
       <nav className="tabbar">
         {ROUTES.slice(1).filter((r) => !r.noTab).map((r) => (
