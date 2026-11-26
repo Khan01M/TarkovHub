@@ -27,12 +27,10 @@ export function parseScreenshotName(name: string): Pos | null {
 
 // Мост к десктопному приложению (Electron, см. electron/preload.cjs)
 export type DesktopBridge = {
-  isDesktop: true;
   getScreenshotsDir: () => Promise<string>;
   chooseScreenshotsDir: () => Promise<string | null>;
   onPosition: (cb: (p: Pos) => void) => () => void;
   onMapDetected?: (cb: (map: string) => void) => () => void;
-  openExternal?: (url: string) => void;
 };
 
 export const desktop: DesktopBridge | undefined = (window as any).tarkovHub;

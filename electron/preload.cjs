@@ -8,12 +8,10 @@ const sub = (channel) => (cb) => {
 };
 
 contextBridge.exposeInMainWorld('tarkovHub', {
-  isDesktop: true,
   getScreenshotsDir: () => ipcRenderer.invoke('get-screenshots-dir'),
   chooseScreenshotsDir: () => ipcRenderer.invoke('choose-screenshots-dir'),
   getGameDir: () => ipcRenderer.invoke('get-game-dir'),
   chooseGameDir: () => ipcRenderer.invoke('choose-game-dir'),
   onPosition: sub('position'),
   onMapDetected: sub('map'),
-  openExternal: (url) => ipcRenderer.send('open-external', url),
 });

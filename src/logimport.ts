@@ -19,7 +19,7 @@ export const locName = (id: string) => {
   const low = id.toLowerCase();
   const ev = low.endsWith('_event');
   const base = ev ? low.slice(0, -6) : low;
-  const n = LOC[base] || LOC[base.replace(/_event$/, '')] || (base.startsWith('factory') ? 'Завод' : base);
+  const n = LOC[base] || (base.startsWith('factory') ? 'Завод' : base);
   return ev ? `${n} (заражённая)` : n;
 };
 

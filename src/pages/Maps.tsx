@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useData, State, safeUrl } from '../ui';
 import { loadMaps, getGameMode } from '../api';
 import { useProgress } from '../progress';
-import { loadQuestData, currentTasks, QuestTask } from '../questdata';
+import { loadQuestData, useOpenTaskIds, QuestTask } from '../questdata';
 import { Img } from '../ui';
 import { rub } from '../api';
 import { desktop, parseScreenshotName, Pos } from '../position';
@@ -18,12 +18,12 @@ const FACTION: Record<string, { label: string; color: string }> = {
 };
 
 type View = { rot: number; flip: boolean };
-const loadView = (id: string): View => { try { return JSON.parse(localStorage.getItem('view:' + id) || '') } catch { return { rot: 0, flip: false }; } };
+const loadView = (id: string): View => { try { return JSON.parse(localStorage.getItem('view:' + id) || '') || { rot: 0, flip: false }; } catch { return { rot: 0, flip: false }; } };
 
 export default function Maps() {
   const { data, error, loading } = useData(loadMaps);
   const maps = useMemo(() => (data?.maps || []).filter((m: any) => m.name).sort((a: any, b: any) => a.name.localeCompare(b.name, 'ru')), [data]);
-  const [sel, setSel] = useState<string>(() => localStorage.getItem('map') || '');
+  const [sel, setSel] = useState<string>(() => { try { return localStorage.getItem('map') || ''; } catch { return ''; } });
   // Переход из «Обзора»: карта выбрана по id
   useEffect(() => {
     if (!maps.length) return;
@@ -44,15 +44,19 @@ export default function Maps() {
   const [focus, setFocus] = useState<{ n: number; pts: [number, number][] } | null>(null);
   useEffect(() => { setSelTask(null); setFocus(null); }, [map?.id, questScope]);
 
+  // Текущие — те же «открытые сейчас», что на странице «Квесты»
+  const open = useOpenTaskIds(progress.done);
+  const openIds = open.ids;
+  // Пока текущие не посчитаны — загрузка или ошибка вместо «текущих квестов нет»
+  const openWait = { loading: open.loading || progress.loading, error: open.error || (progress.loadError && `прогресс не загрузился: ${progress.loadError}`) || null, retry: progress.loadError ? progress.reload : undefined };
   // Квесты, у которых есть точки на этой карте
   const mapQuests = useMemo(() => {
     if (!qd.data || !map) return [] as { task: QuestTask; objs: QuestTask['objectives'] }[];
-    let level = 0; try { level = Number(localStorage.getItem(`playerLevel:${getGameMode()}`)) || 0; } catch { /* ignore */ }
-    const pool = questScope === 'current' ? currentTasks(qd.data, progress.done, level || 999) : qd.data.tasks;
+    const pool = questScope === 'current' ? qd.data.tasks.filter((t) => openIds?.has(t.id)) : qd.data.tasks;
     return pool.map((task) => ({ task, objs: task.objectives.filter((o) => o.points.some((p) => p.map === map.id)) }))
       .filter((q) => q.objs.length > 0)
       .sort((a, b) => a.task.trader.localeCompare(b.task.trader, 'ru') || a.task.minPlayerLevel - b.task.minPlayerLevel);
-  }, [qd.data, progress.done, map, questScope]);
+  }, [qd.data, openIds, map, questScope]);
 
   const questPoints = useMemo(() => {
     const out: QuestPin[] = [];
@@ -78,7 +82,7 @@ export default function Maps() {
   const [hint, setHint] = useState('');
   const [show, setShow] = useState({ pmc: true, scav: true, shared: true, spawns: false, quests: true });
 
-  const pick = (n: string) => { setSel(n); localStorage.setItem('map', n); setTrack([]); };
+  const pick = (n: string) => { setSel(n); try { localStorage.setItem('map', n); } catch { /* ignore */ } setTrack([]); };
 
   // Интеграция с игрой (только в версии для ПК)
   useEffect(() => {
@@ -134,7 +138,7 @@ export default function Maps() {
             <div className="side">
               {show.quests && qd.data && (
                 <MapQuestList quests={mapQuests} data={qd.data} selected={selTask} onSelect={(id) => chooseTask(id, true)}
-                  scope={questScope} setScope={setScope} done={progress.done} toggle={progress.toggle} canEdit={!progress.loading} />
+                  scope={questScope} setScope={setScope} done={progress.done} toggle={progress.toggle} canEdit={progress.canEdit} wait={openWait} />
               )}
               <div className="card">
                 <h3>{map.name}</h3>
@@ -208,7 +212,7 @@ function dedupe(bosses: any[]) {
 function MapCanvas({ map, track, show, quests = [], selected, onSelect }: { map: any; track: Pos[]; show: Record<string, boolean>; quests?: QuestPin[]; selected?: string | null; onSelect?: (id: string | null) => void }) {
   const [view, setView] = useState<View>(() => loadView(map.id));
   useEffect(() => setView(loadView(map.id)), [map.id]);
-  const save = (v: View) => { setView(v); localStorage.setItem('view:' + map.id, JSON.stringify(v)); };
+  const save = (v: View) => { setView(v); try { localStorage.setItem('view:' + map.id, JSON.stringify(v)); } catch { /* ignore */ } };
 
   const extracts = (map.extracts || []).filter((e: any) => e.position && show[e.faction] !== false);
   const spawns = show.spawns ? (map.spawns || []).filter((s: any) => s.position) : [];
@@ -303,10 +307,12 @@ function GameDirSetting() {
   );
 }
 
-function MapQuestList({ quests, data, selected, onSelect, scope, setScope, done, toggle, canEdit }: {
+function MapQuestList({ quests, data, selected, onSelect, scope, setScope, done, toggle, canEdit, wait }: {
   quests: { task: QuestTask; objs: QuestTask['objectives'] }[]; data: any; selected: string | null; onSelect: (id: string | null) => void;
   scope: 'current' | 'all'; setScope: (v: 'current' | 'all') => void; done: Record<string, boolean>; toggle: (id: string) => void; canEdit: boolean;
+  wait: { loading: boolean; error: string | null; retry?: () => void };
 }) {
+  const waiting = scope === 'current' && (wait.loading || !!wait.error);
   return (
     <div className="card map-quests">
       <div className="ov-head">
@@ -317,7 +323,9 @@ function MapQuestList({ quests, data, selected, onSelect, scope, setScope, done,
         </div>
       </div>
       <p className="muted small">Нажмите на квест — карта покажет его точки. Нажмите на булавку на карте — откроется квест здесь.</p>
-      {quests.length === 0 && <div className="muted small">{scope === 'current' ? 'Текущих квестов с точками на этой карте нет. Переключитесь на «Все».' : 'Квестов с точками на этой карте нет.'}</div>}
+      {waiting && <State loading={wait.loading} error={wait.error} />}
+      {waiting && !wait.loading && wait.retry && <button className="btn small" onClick={wait.retry}>Повторить</button>}
+      {quests.length === 0 && !waiting && <div className="muted small">{scope === 'current' ? 'Текущих квестов с точками на этой карте нет. Переключитесь на «Все».' : 'Квестов с точками на этой карте нет.'}</div>}
       <div className="mq-list">
         {quests.map(({ task, objs }) => {
           const on = selected === task.id;

@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GameMode } from './api';
 import { getClient, useAuth } from './auth';
+import { exclusiveCleanup, uploadPlan, withSideMarks } from './questAvail';
 
 type Marks = Record<string, true>;
 
@@ -48,6 +49,10 @@ export function addLocal(mode: GameMode, ids: string[]) {
 
 // ---------- сервер ----------
 const table = 'quest_progress';
+const CONFLICT = { onConflict: 'user_id,mode,quest_id', ignoreDuplicates: true };
+// Пачки: вставка — массивом в теле запроса, удаление — фильтром in(...) в адресе, поэтому пачка меньше
+const UPSERT_CHUNK = 500;
+const DELETE_CHUNK = 100;
 
 async function fetchRemote(mode: GameMode, userId: string): Promise<Marks> {
   const c = await getClient();
@@ -63,30 +68,218 @@ async function fetchRemote(mode: GameMode, userId: string): Promise<Marks> {
   return out;
 }
 
-/** Добавить отметки в аккаунт. Повторный вызов не создаёт дубликатов. */
-export async function uploadMarks(mode: GameMode, userId: string, ids: string[]) {
-  if (!ids.length) return;
-  const c = await getClient();
-  for (let i = 0; i < ids.length; i += 500) {
-    const rows = ids.slice(i, i + 500).map((quest_id) => ({ user_id: userId, mode, quest_id }));
-    const { error } = await c!.from(table).upsert(rows, { onConflict: 'user_id,mode,quest_id', ignoreDuplicates: true });
-    if (error) throw error;
+// Коды Postgres, когда сервер не принимает само значение ключа: check, длина, формат, not null
+const KEY_CODES = new Set(['23514', '22001', '22P02', '23502', '22023', '22003']);
+
+/** Ошибка записи; permanent — сервер не принимает сами ключи (400/409/422 или коды из KEY_CODES),
+ *  повтор не поможет. Всё прочее — временное, ключи остаются в очереди: сеть, 5xx, 401/403/404
+ *  (истёк вход, исключили из списка, другая сессия), ошибки PostgREST (PGRST…) про запрос в целом. */
+class WriteError extends Error {
+  permanent: boolean;
+  code: string;
+  constructor(e: any, status: number, temporary = false) {
+    super(e?.message || String(e));
+    this.code = String(e?.code || '');
+    this.permanent = !temporary && !this.code.startsWith('PGRST') && (KEY_CODES.has(this.code) || [400, 409, 422].includes(status));
   }
 }
 
-async function saveRemote(mode: GameMode, userId: string, id: string, value: boolean) {
+/** Записать пачкой: del — удалить, ins — добавить. Ошибка любого запроса бросается (WriteError).
+ *  Удаление идёт раньше вставки: при смене уровня/ЛЛ у пишущей стороны не бывает окна {старое, новое}. */
+async function writeRemote(mode: GameMode, userId: string, ins: string[], del: string[]) {
   const c = await getClient();
-  if (value) {
-    const { error } = await c!.from(table).upsert({ user_id: userId, mode, quest_id: id }, { onConflict: 'user_id,mode,quest_id', ignoreDuplicates: true });
-    if (error) throw error;
-  } else {
-    const { error } = await c!.from(table).delete().eq('user_id', userId).eq('mode', mode).eq('quest_id', id);
-    if (error) throw error;
+  if (!c) throw new WriteError(new Error('нет связи с аккаунтом'), 0);
+  // Во вкладке сменился вход (другой игрок) — не пишем чужие отметки в его аккаунт
+  const { data } = await c.auth.getSession();
+  if (data.session?.user.id !== userId) throw new WriteError(new Error('вход в аккаунт сменился — отметки сохранятся после входа под своим аккаунтом'), 0);
+  for (let i = 0; i < del.length; i += DELETE_CHUNK) {
+    const { error, status } = await c.from(table).delete().eq('user_id', userId).eq('mode', mode).in('quest_id', del.slice(i, i + DELETE_CHUNK));
+    if (error) throw new WriteError(error, status);
+  }
+  for (let i = 0; i < ins.length; i += UPSERT_CHUNK) {
+    const rows = ins.slice(i, i + UPSERT_CHUNK).map((quest_id) => ({ user_id: userId, mode, quest_id }));
+    const { error, status } = await c.from(table).upsert(rows, CONFLICT);
+    if (error) throw new WriteError(error, status);
   }
 }
+
+/** Добавить отметки с устройства в аккаунт. Повторный вызов не создаёт дубликатов;
+ *  уровень и лояльность не задваиваются — остаётся наибольшее значение. */
+export async function uploadMarks(mode: GameMode, userId: string, ids: string[]) {
+  if (!ids.length) return;
+  const { add, remove } = uploadPlan(await fetchRemote(mode, userId), ids);
+  await writeRemote(mode, userId, add, remove);
+}
+
+// ---------- очередь сохранений в аккаунт ----------
+// Желаемое значение каждой несохранённой отметки лежит в localStorage — переживает F5 и потерю сети.
+// Пишем пачками и по одной пачке за раз: следующая уходит только после ответа на предыдущую,
+// поэтому записи одного ключа не обгоняют друг друга, а побеждает последнее значение.
+// Несколько вкладок: в localStorage каждая дописывает свои ключи поверх общего значения и удаляет
+// только подтверждённые; несохранённое из других вкладок показываем (foreign), но не отправляем.
+type Pending = Record<string, boolean>;
+type Queue = {
+  pending: Pending;                                   // ключ → желаемое значение, ещё не подтверждено сервером
+  foreign: Pending;                                   // несохранённое другими вкладками (только показ)
+  written: Map<string, { seq: number; v: boolean }>;  // что и когда подтверждено (для чтения, идущего параллельно)
+  inherited: Set<string>;                             // ключи из localStorage, не правленные в этой вкладке
+  rejected: Set<string>;                              // ключи, которые сервер отклонил окончательно
+  rejectError: string | null;
+  seq: number; error: string | null; running: Promise<void> | null;
+  listeners: Set<(foreign?: Pending) => void>;
+};
+const queues = new Map<string, Queue>();
+const pendingKey = (mode: GameMode, userId: string) => `pending:${mode}:${userId}`;
+
+function readPending(k: string): Pending {
+  const out: Pending = {};
+  try {
+    for (const [id, v] of Object.entries(JSON.parse(localStorage.getItem(k) || '{}'))) if (typeof v === 'boolean') out[id] = v;
+  } catch { /* ignore */ }
+  return out;
+}
+/** Слить в localStorage: set — свои новые значения поверх, drop — убрать, если значение то же */
+function mergePending(k: string, set: [string, boolean][], drop: [string, boolean][] = []) {
+  try {
+    const cur = readPending(k);
+    for (const [id, v] of set) cur[id] = v;
+    for (const [id, v] of drop) if (cur[id] === v) delete cur[id];
+    if (Object.keys(cur).length) localStorage.setItem(k, JSON.stringify(cur));
+    else localStorage.removeItem(k);
+  } catch { /* ignore */ }
+}
+
+function queueOf(mode: GameMode, userId: string): Queue {
+  const k = pendingKey(mode, userId);
+  let q = queues.get(k);
+  if (!q) {
+    const pending = readPending(k);
+    q = { pending, foreign: {}, written: new Map(), inherited: new Set(Object.keys(pending)), rejected: new Set(), rejectError: null, seq: 0, error: null, running: null, listeners: new Set() };
+    queues.set(k, q);
+  }
+  return q;
+}
+const notify = (q: Queue, foreign?: Pending) => q.listeners.forEach((l) => l(foreign));
+
+/** Другая вкладка поменяла свой несохранённый список: берём из него то, чего нет у нас.
+ *  Унаследованные ключи (взяты из localStorage, здесь не правились) сверяем с ним: значение
+ *  сменилось — берём новое, ключ исчез (другая вкладка сохранила) — не досылаем устаревшее. */
+function syncForeign(mode: GameMode, userId: string) {
+  const q = queueOf(mode, userId);
+  const ls = readPending(pendingKey(mode, userId));
+  const n = { ...q.pending };
+  for (const id of [...q.inherited]) {
+    if (id in ls) n[id] = ls[id];
+    else { delete n[id]; q.inherited.delete(id); }
+  }
+  q.pending = n;
+  const f: Pending = {};
+  for (const [id, v] of Object.entries(ls)) if (!(id in q.pending)) f[id] = v;
+  q.foreign = f;
+  notify(q, f);
+}
+
+/** Отправить всё несохранённое. Промис завершается, когда очередь пуста, или с ошибкой (временной). */
+function flush(mode: GameMode, userId: string): Promise<void> {
+  const q = queueOf(mode, userId);
+  const k = pendingKey(mode, userId);
+  // Уже отправляем: новые отметки подхватит текущий цикл
+  if (q.running) return q.running;
+  if (!Object.keys(q.pending).length) return Promise.resolve();
+
+  // Подтверждённые убираем, если за время запроса их не поменяли ещё раз
+  const confirm = (part: [string, boolean][]) => {
+    const n = { ...q.pending };
+    q.seq++;
+    for (const [id, v] of part) {
+      if (n[id] === v) { delete n[id]; q.inherited.delete(id); }
+      q.written.set(id, { seq: q.seq, v });
+    }
+    q.pending = n; q.error = null;
+    mergePending(k, [], part);
+    notify(q);
+  };
+  // Пачку, которую сервер отклонил, делим пополам до одиночных ключей; одиночный — убираем из очереди.
+  // Предохранитель: два разных ключа подряд отклонены одной и той же ошибкой — значит, дело не в ключах
+  // (права, схема): первый возвращаем в очередь, остальное не трогаем, ошибка считается временной.
+  let last: { id: string; v: boolean; sig: string } | null = null;
+  const send = async (part: [string, boolean][]): Promise<void> => {
+    try {
+      await writeRemote(mode, userId, part.filter(([, v]) => v).map(([id]) => id), part.filter(([, v]) => !v).map(([id]) => id));
+      confirm(part);
+      last = null;
+    } catch (e: any) {
+      if (!(e instanceof WriteError) || !e.permanent) throw e;
+      if (part.length > 1) {
+        const h = Math.ceil(part.length / 2);
+        await send(part.slice(0, h));
+        await send(part.slice(h));
+        return;
+      }
+      const [id, v] = part[0];
+      const sig = e.code + '|' + e.message;
+      if (last && last.sig === sig && last.id !== id) {
+        const prev = last;
+        if (!(prev.id in q.pending)) { q.pending = { ...q.pending, [prev.id]: prev.v }; mergePending(k, [[prev.id, prev.v]]); }
+        q.rejected.delete(prev.id);
+        if (!q.rejected.size) q.rejectError = null;
+        console.warn('quest_progress: одинаковая ошибка у разных отметок — похоже на сбой сервера или прав', e.message);
+        throw new WriteError(e, 0, true);
+      }
+      last = { id, v, sig };
+      console.warn('quest_progress: сервер отклонил отметку', id, v, e.message);
+      const n = { ...q.pending };
+      if (n[id] === v) delete n[id];
+      q.pending = n;
+      q.rejected.add(id); q.rejectError = e.message; q.error = null;
+      mergePending(k, [], part);
+      notify(q);
+    }
+  };
+
+  q.running = (async () => {
+    try {
+      for (;;) {
+        const part = Object.entries(q.pending).slice(0, UPSERT_CHUNK);
+        if (!part.length) break;
+        await send(part);
+      }
+    } catch (e: any) {
+      q.error = e?.message || String(e);
+      notify(q);
+      throw e;
+    } finally {
+      q.running = null;
+    }
+  })();
+  q.running.catch(() => { /* ошибку показывает saveError */ });
+  return q.running;
+}
+
+function enqueue(mode: GameMode, userId: string, changes: [string, boolean][]): Promise<void> {
+  const q = queueOf(mode, userId);
+  q.pending = { ...q.pending };
+  for (const [id, v] of changes) { q.pending[id] = v; delete q.foreign[id]; q.rejected.delete(id); q.inherited.delete(id); }
+  mergePending(pendingKey(mode, userId), changes);
+  notify(q);
+  return flush(mode, userId);
+}
+
+/** Наложить на отметки то, что ещё не сохранено (своё и других вкладок), и то, что подтверждено после sinceSeq */
+function overlay(m: Marks, q: Queue, sinceSeq: number) {
+  const apply = (id: string, v: boolean) => { if (v) m[id] = true; else delete m[id]; };
+  q.written.forEach((w, id) => { if (w.seq > sinceSeq) apply(id, w.v); });
+  for (const [id, v] of Object.entries(q.foreign)) apply(id, v);
+  for (const [id, v] of Object.entries(q.pending)) apply(id, v);
+}
+
+const noop = () => { /* ошибку показывает saveError */ };
+/** Отклонённый промис, который не считается «необработанным», если вызывающий его не ждёт */
+const quietReject = (msg: string) => { const p = Promise.reject(new Error(msg)); p.catch(noop); return p; };
 
 // ---------- хук для страницы квестов ----------
 export type ProgressSource = 'local' | 'account';
+type Changes = Record<string, boolean>;
 
 export function useProgress(mode: GameMode) {
   const auth = useAuth();
@@ -96,21 +289,40 @@ export function useProgress(mode: GameMode) {
   const [done, setDone] = useState<Marks>(() => readLocal(mode));
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  // Отметки, которые не удалось сохранить: id → желаемое значение
-  const [unsaved, setUnsaved] = useState<Record<string, boolean>>({});
-  const [saveError, setSaveError] = useState<string | null>(null);
   const gen = useRef(0);
+  const doneRef = useRef(done);
+  doneRef.current = done;
+  const loadErrorRef = useRef(loadError);
+  loadErrorRef.current = loadError;
+
+  const apply = (n: Marks) => { doneRef.current = n; setDone(n); };
 
   const reload = useCallback(async () => {
     const my = ++gen.current;
-    setUnsaved({}); setSaveError(null); setLoadError(null);
-    if (!account) { setDone(readLocal(mode)); setLoading(false); return; }
+    setLoadError(null);
+    if (!account) { apply(readLocal(mode)); setLoading(false); return; }
     setLoading(true);
+    const q = queueOf(mode, account);
+    // Сначала сверяемся с несохранённым других вкладок, потом досылаем своё — независимо от того, удастся ли чтение
+    syncForeign(mode, account);
+    flush(mode, account).catch(noop);
+    const since = q.seq;
     try {
       const m = await fetchRemote(mode, account);
-      if (my === gen.current) setDone(m);
+      if (my !== gen.current) return;
+      overlay(m, q, since);
+      // Задвоенные уровень/лояльность (после переноса или старой гонки записей) чистим
+      const fix = Object.entries(exclusiveCleanup(m));
+      for (const [id] of fix) delete m[id];
+      apply(m);
+      if (fix.length) enqueue(mode, account, fix).catch(noop);
     } catch (e: any) {
-      if (my === gen.current) setLoadError(e?.message || String(e));
+      if (my !== gen.current) return;
+      // Прогресс из аккаунта не прочитан: правка заблокирована, показываем хотя бы несохранённое поверх того, что есть
+      const m = { ...doneRef.current };
+      overlay(m, q, -1);
+      apply(m);
+      setLoadError(e?.message || String(e));
     } finally {
       if (my === gen.current) setLoading(false);
     }
@@ -118,53 +330,112 @@ export function useProgress(mode: GameMode) {
 
   useEffect(() => { reload(); }, [reload]);
 
-  const save = useCallback(async (id: string, value: boolean) => {
+  // Состояние очереди (несохранённые отметки и ошибки) — общее для всех страниц
+  const [, rerender] = useState(0);
+  useEffect(() => {
     if (!account) return;
-    try {
-      await saveRemote(mode, account, id, value);
-      setUnsaved((u) => { const n = { ...u }; delete n[id]; return n; });
-      setSaveError(null);
-    } catch (e: any) {
-      // Отметку на экране не снимаем: игрок видит, что она не сохранена, и может повторить
-      setUnsaved((u) => ({ ...u, [id]: value }));
-      setSaveError(e?.message || String(e));
-    }
-  }, [mode, account]);
+    const q = queueOf(mode, account);
+    const k = pendingKey(mode, account);
+    const f = (foreign?: Pending) => {
+      if (foreign) { const m = { ...doneRef.current }; overlay(m, q, Infinity); apply(m); }
+      rerender((x) => x + 1);
+    };
+    q.listeners.add(f);
+    // Сеть вернулась — досылаем; если прогресс не прочитался — читаем заново
+    const online = () => { if (loadErrorRef.current) reload(); else flush(mode, account).catch(noop); };
+    const storage = (e: StorageEvent) => { if (e.key === k) syncForeign(mode, account); };
+    window.addEventListener('online', online);
+    window.addEventListener('storage', storage);
+    return () => { q.listeners.delete(f); window.removeEventListener('online', online); window.removeEventListener('storage', storage); };
+  }, [mode, account, reload]);
 
-  const doneRef = useRef(done);
-  doneRef.current = done;
+  // Править можно, когда отметки загружены (в аккаунте — прочитаны с сервера)
+  const canEdit = !loading && !(account && loadError);
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
 
-  const toggle = useCallback((id: string) => {
-    const n = { ...doneRef.current };
-    const value = !n[id];
-    if (value) n[id] = true; else delete n[id];
-    doneRef.current = n;
-    setDone(n);
-    if (!account) writeLocal(mode, n);
-    else save(id, value);
-  }, [mode, account, save]);
-
-  /** Задать сразу несколько отметок (например, уровни модуля убежища) */
-  const setMarks = useCallback((changes: Record<string, boolean>) => {
-    const n = { ...doneRef.current };
+  /** Задать сразу несколько отметок (например, уровни модуля убежища). changes можно посчитать
+   *  от текущих отметок функцией. В аккаунте промис завершается, когда всё отправлено, или с ошибкой;
+   *  результат — сколько из этих отметок сервер не принял окончательно. */
+  const setMarks = useCallback((changes: Changes | ((cur: Record<string, true>) => Changes)): Promise<number> => {
+    if (!canEditRef.current) return quietReject('прогресс из аккаунта не загружен — отметки пока нельзя менять');
+    const cur = doneRef.current;
+    const all = withSideMarks(typeof changes === 'function' ? changes(cur) : changes);
+    const n = { ...cur };
     const real: [string, boolean][] = [];
-    for (const [id, v] of Object.entries(changes)) {
+    for (const [id, v] of Object.entries(all)) {
       if (!!n[id] === v) continue;
       if (v) n[id] = true; else delete n[id];
       real.push([id, v]);
     }
-    if (!real.length) return;
-    doneRef.current = n;
-    setDone(n);
-    if (!account) writeLocal(mode, n);
-    else for (const [id, v] of real) save(id, v);
-  }, [mode, account, save]);
+    if (!real.length) return Promise.resolve(0);
+    apply(n);
+    if (!account) { writeLocal(mode, n); return Promise.resolve(0); }
+    const q = queueOf(mode, account);
+    const p = enqueue(mode, account, real).then(() => real.filter(([id]) => q.rejected.has(id)).length);
+    p.catch(noop); // вызывающий может не ждать — ошибку покажет saveError
+    return p;
+  }, [mode, account]);
+
+  const toggle = useCallback((id: string) => {
+    setMarks((cur) => ({ [id]: !cur[id] })).catch(noop);
+  }, [setMarks]);
 
   const retry = useCallback(() => {
-    for (const [id, v] of Object.entries(unsaved)) save(id, v);
-  }, [unsaved, save]);
+    if (account) flush(mode, account).catch(noop);
+  }, [mode, account]);
 
-  return { done, toggle, setMarks, source, loading, loadError, unsaved, saveError, retry, reload, auth };
+  const q = account ? queueOf(mode, account) : null;
+  // «Не сохранено» показываем, только если запись не удалась (пока запрос идёт, это не ошибка)
+  const unsaved: Changes = q?.error ? q.pending : {};
+  const saveError = q?.error || null;
+  // Отметки, которые сервер не принял окончательно (убраны из очереди)
+  const rejected = q ? q.rejected.size : 0;
+  const rejectError = q?.rejectError || null;
+
+  return { done, toggle, setMarks, source, loading, loadError, canEdit, unsaved, saveError, rejected, rejectError, retry, reload, auth };
+}
+
+/** Числовое поле, которое сохраняет не на каждый символ, а по уходу с поля, Enter или через delay мс
+ *  после последнего ввода. commit получает введённый текст. */
+export function useLazyNumber(value: number, commit: (s: string) => void, delay = 600, disabled = false) {
+  const [draft, setDraft] = useState<string | null>(null); // null — не редактируют, показываем value
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const pending = useRef<string | null>(null);
+  const focused = useRef(false);
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
+  const fire = (force = false) => {
+    clearTimeout(timer.current);
+    // Поле заблокировано (прогресс грузится) — набранное держим и сохраним после разблокировки
+    if (disabledRef.current && !force) return;
+    if (pending.current != null) { const s = pending.current; pending.current = null; commitRef.current(s); }
+    // Поле уже не в фокусе — показываем сохранённое значение
+    if (!focused.current) setDraft(null);
+  };
+  // Ушли со страницы, не дождавшись задержки, — всё равно пробуем сохранить
+  useEffect(() => () => fire(true), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Поле стало недоступно (blur в этом случае может не прийти) — снимаем фокус, черновик не теряем;
+  // снова доступно — сохраняем то, что набрали
+  useEffect(() => {
+    if (disabled) { focused.current = false; clearTimeout(timer.current); } else if (pending.current != null) fire();
+  }, [disabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Значение поменялось извне, а поле не редактируют — показываем новое
+  useEffect(() => { if (!focused.current && pending.current == null) setDraft(null); }, [value]);
+  return {
+    value: draft ?? (value ? String(value) : ''),
+    onFocus: () => { focused.current = true; },
+    onChange: (e: { target: { value: string } }) => {
+      const s = e.target.value;
+      setDraft(s); pending.current = s;
+      clearTimeout(timer.current);
+      timer.current = setTimeout(fire, delay);
+    },
+    onBlur: () => { focused.current = false; fire(); },
+    onKeyDown: (e: { key: string }) => { if (e.key === 'Enter') fire(); },
+  };
 }
 
 // ---------- команда: прогресс друг друга (только просмотр) ----------

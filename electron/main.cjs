@@ -6,10 +6,10 @@ const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron')
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { pathToFileURL } = require('url');
+const { fileURLToPath } = require('url');
 
-const APP_INDEX = path.join(__dirname, '..', 'dist', 'index.html');
-const APP_DIR_URL = pathToFileURL(path.join(__dirname, '..', 'dist') + path.sep).href;
+const APP_DIST = path.resolve(__dirname, '..', 'dist');
+const APP_INDEX = path.join(APP_DIST, 'index.html');
 
 // Во внешний браузер отдаём только http(s). Ссылки file:, smb:, ms-*: и прочие
 // протоколы в Windows могут запустить программу, поэтому они отклоняются.
@@ -19,18 +19,24 @@ function isSafeExternal(url) {
 function openExternalSafe(url) { if (isSafeExternal(url)) shell.openExternal(url); }
 
 // Принимаем IPC только от собственной страницы приложения.
-// Сравниваем file://-адреса без учёта кодирования и (в Windows) регистра:
-// путь может содержать кириллицу и пробелы.
-function normFileUrl(u) {
-  let s = ''; try { s = decodeURIComponent(new URL(u).href.split(/[?#]/)[0]); } catch { return ''; }
-  return process.platform === 'win32' ? s.toLowerCase() : s;
+// Сравниваем пути, а не строки: file://-адрес → путь на диске → относительно dist.
+// Так «..», %2F и разный регистр букв диска не обманут проверку.
+function isAppUrl(u) {
+  if (typeof u !== 'string' || !u.startsWith('file:')) return false;
+  let p;
+  try { p = path.resolve(fileURLToPath(u)); } catch { return false; }
+  const rel = path.relative(APP_DIST, p);
+  return !rel.startsWith('..') && !path.isAbsolute(rel);
 }
-const isAppUrl = (u) => typeof u === 'string' && u.startsWith('file:') && normFileUrl(u).startsWith(normFileUrl(APP_DIR_URL));
 function fromApp(event) {
   return event.sender === win?.webContents && isAppUrl(event.senderFrame?.url || '');
 }
 
 let win;
+// На macOS окно может быть закрыто при живом приложении — тогда отправлять некуда.
+function sendToWin(channel, data) {
+  try { if (win && !win.isDestroyed()) win.webContents.send(channel, data); } catch {}
+}
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 let settings = {};
 function loadSettings() { try { settings = JSON.parse(fs.readFileSync(settingsFile(), 'utf8')); } catch { settings = {}; } }
@@ -58,14 +64,21 @@ function watchScreenshots() {
   const dir = settings.screenshotsDir || defaultScreenshotsDir();
   try { fs.mkdirSync(dir, { recursive: true }); } catch {}
   try {
-    shotWatcher = fs.watch(dir, (_evt, file) => {
+    const w = fs.watch(dir, (_evt, file) => {
       if (!file || !/\.(png|jpe?g|bmp)$/i.test(file) || seen.has(file)) return;
       const pos = parseName(file);
       if (!pos) return;
       if (seen.size > 5000) seen.clear();
       seen.add(file);
-      win?.webContents.send('position', pos);
+      sendToWin('position', pos);
     });
+    // Папку удалили или отключили диск — без обработчика главный процесс упадёт.
+    w.on('error', (e) => {
+      console.error('Слежение за папкой скриншотов остановлено:', e.message);
+      try { w.close(); } catch {}
+      if (shotWatcher === w) shotWatcher = null;
+    });
+    shotWatcher = w;
   } catch (e) { console.error('Не удалось следить за папкой скриншотов:', e.message); }
 }
 
@@ -91,6 +104,15 @@ function newestLog(logsDir) {
   } catch {}
   return '';
 }
+// Какой кусок лога дочитать: не больше LOG_MAX_READ с хвоста за раз.
+// Файл стал короче сохранённой позиции (лог усекли) — читаем заново с начала.
+const LOG_MAX_READ = 1024 * 1024;
+function nextLogRange(pos, size) {
+  if (size < pos) pos = 0;
+  if (size <= pos) return null;
+  const start = Math.max(pos, size - LOG_MAX_READ);
+  return { start, len: size - start };
+}
 function pollLogs() {
   const gd = gameDir();
   if (!gd) return;
@@ -99,15 +121,18 @@ function pollLogs() {
   try {
     const size = fs.statSync(file).size;
     if (file !== logState.file) logState = { file, size: Math.max(0, size - 200000), map: logState.map };
-    if (size <= logState.size) return;
-    const fd = fs.openSync(file, 'r');
-    const buf = Buffer.alloc(size - logState.size);
-    fs.readSync(fd, buf, 0, buf.length, logState.size);
-    fs.closeSync(fd);
+    const next = nextLogRange(logState.size, size);
     logState.size = size;
+    if (!next) return;
+    const fd = fs.openSync(file, 'r');
+    let buf;
+    try {
+      buf = Buffer.alloc(next.len);
+      fs.readSync(fd, buf, 0, buf.length, next.start);
+    } finally { fs.closeSync(fd); }
     const matches = [...buf.toString('utf8').matchAll(/Location:\s*([A-Za-z0-9_]+)/g)];
     const last = matches.length ? matches[matches.length - 1][1] : '';
-    if (last && last !== logState.map) { logState.map = last; win?.webContents.send('map', last); }
+    if (last && last !== logState.map) { logState.map = last; sendToWin('map', last); }
   } catch {}
 }
 
@@ -137,7 +162,8 @@ function createWindow() {
         click: (i) => { settings.onTop = i.checked; win.setAlwaysOnTop(i.checked); saveSettings(); } },
       { role: 'reload', label: 'Обновить' }, { role: 'togglefullscreen', label: 'Полный экран' },
       { role: 'zoomIn', label: 'Крупнее' }, { role: 'zoomOut', label: 'Мельче' }, { role: 'resetZoom', label: 'Обычный размер' },
-      { type: 'separator' }, { role: 'toggleDevTools', label: 'Инструменты разработчика' },
+      // Инструменты разработчика — только в разработке, не в установленной программе.
+      ...(app.isPackaged ? [] : [{ type: 'separator' }, { role: 'toggleDevTools', label: 'Инструменты разработчика' }]),
     ] },
   ]);
   Menu.setApplicationMenu(menu);
@@ -160,7 +186,6 @@ ipcMain.handle('choose-game-dir', async (e) => {
   settings.gameDir = r.filePaths[0]; saveSettings(); logState = { file: '', size: 0, map: '' };
   return settings.gameDir;
 });
-ipcMain.on('open-external', (e, url) => { if (fromApp(e) && typeof url === 'string') openExternalSafe(url); });
 
 // Запрещаем любые <webview> и запросы разрешений (камера, микрофон, геолокация и т. п.) — приложению они не нужны.
 app.on('web-contents-created', (_e, contents) => {

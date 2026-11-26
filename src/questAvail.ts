@@ -36,7 +36,12 @@ export function questAvailability(tasks: Task[], done: Record<string, boolean>, 
     if (t.badRep) why.push(`только при отрицательной репутации у торговца ${t.trader}`);
     for (const r of t.reqs) {
       const rt = byId[r.id];
-      if (!rt || done[r.id]) continue;
+      if (!rt) continue;
+      // Выполненный квест закрывает требования «выполнить»/«взять», но не «провалить»:
+      // при выполненном квесте ветка «провалить» в игре недоступна
+      if (done[r.id] && (r.status.includes('complete') || r.status.includes('active'))) continue;
+      // «Провалить квест»: требование выполнено, если стоит отметка провала (из логов)
+      if (r.status.includes('failed') && done['f:' + r.id]) continue;
       if (r.status.includes('active') && calc(rt, stack).state === 'open') continue;
       why.push(r.status.length === 1 && r.status[0] === 'failed' ? `сначала провалить «${rt.name}»` : `сначала «${rt.name}»`);
     }
@@ -66,16 +71,77 @@ export const guessLevel = (tasks: Task[], done: Record<string, boolean>) =>
 export const guessLoyalty = (tasks: Task[], done: Record<string, boolean>, trader: string) =>
   Math.max(1, ...tasks.filter((t) => had(done, t.id) && t.trader === trader).map((t) => t.loyalty));
 
+// ---------- одно определение «открытых сейчас» для «Квестов», «Обзора» и «Карт» ----------
+/** Квесты только для другой фракции (BEAR/USEC) прячем, если фракция выбрана */
+export const forFaction = (tasks: Task[], faction: string) => tasks.filter((t) => !faction || !t.faction || t.faction === faction);
+/** Уровень ЧВК: указанный игроком, иначе оценка по выполненным и взятым квестам */
+export const playerLevel = (tasks: Task[], done: Record<string, boolean>) => storedLevel(done) || guessLevel(tasks, done);
+/** Лояльность у торговца: указанная игроком, иначе оценка */
+export const playerLL = (tasks: Task[], done: Record<string, boolean>, trader: string) => storedLL(done, trader) || guessLoyalty(tasks, done, trader);
+/** Доступность квестов по отметкам игрока (tasks — уже отфильтрованные по фракции) */
+export const availabilityFor = (tasks: Task[], done: Record<string, boolean>) =>
+  questAvailability(tasks, done, playerLevel(tasks, done), (tr) => playerLL(tasks, done, tr));
+/** id квестов, открытых сейчас у торговцев */
+export function openTaskIds(all: Task[], done: Record<string, boolean>, faction: string): Set<string> {
+  const tasks = forFaction(all, faction);
+  const av = availabilityFor(tasks, done);
+  return new Set(tasks.filter((t) => av[t.id].state === 'open').map((t) => t.id));
+}
+
 // ---------- уровень ЧВК и лояльность, указанные игроком ----------
 // Хранятся вместе с прогрессом (в аккаунте, если вошли): «lvl:28», «ll:Прапор:3».
-export function storedLevel(m: Record<string, boolean>): number {
-  for (const k in m) if (m[k] && k.startsWith('lvl:')) return Number(k.slice(4)) || 0;
-  return 0;
+// Значение должно быть одно; если из-за переноса или гонки записей их несколько — берём наибольшее
+// (уровень и лояльность в игре только растут), а лишние снимает exclusiveCleanup.
+const maxOf = (m: Record<string, boolean>, p: string) => {
+  let best = 0;
+  for (const k in m) if (m[k] && k.startsWith(p)) best = Math.max(best, Number(k.slice(p.length)) || 0);
+  return best;
+};
+export const storedLevel = (m: Record<string, boolean>): number => maxOf(m, 'lvl:');
+export const storedLL = (m: Record<string, boolean>, trader: string): number => maxOf(m, `ll:${trader}:`);
+
+/** Группа «эксклюзивного» ключа: «lvl:» или «ll:<торговец>:»; для прочих ключей — null */
+function exclusiveGroup(k: string): string | null {
+  if (k.startsWith('lvl:')) return 'lvl:';
+  if (k.startsWith('ll:')) { const i = k.lastIndexOf(':'); return i > 2 ? k.slice(0, i + 1) : null; }
+  return null;
 }
-export function storedLL(m: Record<string, boolean>, trader: string): number {
-  const p = `ll:${trader}:`;
-  for (const k in m) if (m[k] && k.startsWith(p)) return Number(k.slice(p.length)) || 0;
-  return 0;
+/** Лишние значения уровня и лояльности (все, кроме наибольшего в группе) — снять */
+export function exclusiveCleanup(m: Record<string, boolean>): Record<string, false> {
+  const groups: Record<string, string[]> = {};
+  for (const k in m) { const g = m[k] && exclusiveGroup(k); if (g) (groups[g] ||= []).push(k); }
+  const ch: Record<string, false> = {};
+  for (const [g, keys] of Object.entries(groups)) {
+    if (keys.length < 2) continue;
+    const keep = 'lvl:' === g ? 'lvl:' + storedLevel(m) : g + maxOf(m, g);
+    for (const k of keys) if (k !== keep) ch[k] = false;
+    // Все значения нечисловые — оставляем как есть, чтобы не стереть всё
+    if (!keys.includes(keep)) for (const k of keys) delete ch[k];
+  }
+  return ch;
+}
+
+/** Перенос отметок с устройства в аккаунт: что добавить и что удалить в аккаунте */
+export function uploadPlan(remote: Record<string, boolean>, local: string[]): { add: string[]; remove: string[] } {
+  const union: Record<string, boolean> = { ...remote };
+  for (const k of local) union[k] = true;
+  const drop = exclusiveCleanup(union);
+  const add = local.filter((k) => !remote[k] && !(k in drop)
+    // «взят»/«провален» для квеста, уже выполненного где-либо, не переносим
+    && !((k.startsWith('a:') || k.startsWith('f:')) && union[k.slice(2)]));
+  return { add: [...new Set(add)], remove: Object.keys(drop).filter((k) => remote[k]) };
+}
+
+/** Сопутствующие изменения: отметка «выполнен» (или её снятие) снимает «взят», а «выполнен» — и «провален».
+ *  Явно заданные в changes «a:»/«f:» не трогаем. */
+export function withSideMarks(changes: Record<string, boolean>): Record<string, boolean> {
+  const out = { ...changes };
+  for (const [id, v] of Object.entries(changes)) {
+    if (id.includes(':')) continue; // только сами квесты (id без префикса)
+    if (!(('a:' + id) in changes)) out['a:' + id] = false;
+    if (v && !(('f:' + id) in changes)) out['f:' + id] = false;
+  }
+  return out;
 }
 /** Изменения отметок, чтобы записать новое значение (старое снимается) */
 export function levelChanges(m: Record<string, boolean>, level: number) {
