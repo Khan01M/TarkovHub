@@ -1,6 +1,6 @@
 // Убежище: построенные уровни модулей и сводка «что нужно» для квестов и убежища.
 // Уровни хранятся вместе с прогрессом квестов (ключ «h:<id уровня>»), запас предметов — на устройстве.
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useData, State, Search, norm, Img } from '../ui';
 import { loadHideout, loadTasks, loadItems, getGameMode, rub, num } from '../api';
 import type { Item, Station, HideoutLevel, Task } from '../api';
@@ -61,6 +61,11 @@ export default function Hideout() {
     for (const l of s.levels) { if (done['h:' + l.id]) n = l.level; else break; }
     return n;
   }, [done]);
+  // Инструкция открыта, если ничего не построено. Решаем один раз, когда загрузились данные и прогресс,
+  // чтобы она не схлопывалась под пальцем при первой отметке.
+  const howtoOpen = useRef<boolean | null>(null);
+  // auth 'loading': useProgress пока читает локальные отметки — ждём, иначе у вошедшего она останется открытой
+  if (howtoOpen.current === null && hideout.data && !progress.loading && progress.auth.status !== 'loading') howtoOpen.current = stations.every((s) => built(s) === 0);
   const setBuilt = (s: Station, level: number) => {
     const ch: Record<string, boolean> = {};
     for (const l of s.levels) ch['h:' + l.id] = l.level <= level;
@@ -71,6 +76,14 @@ export default function Hideout() {
     <section>
       <h1>Убежище</h1>
       <p className="lead">Отмечайте построенные уровни модулей — сайт покажет, что нужно для следующих, и соберёт общий список предметов для убежища и квестов.</p>
+      <details className="card howto pg-howto" open={howtoOpen.current || undefined}>
+        <summary><b>Как пользоваться</b></summary>
+        <ol className="small">
+          <li><b>Модули:</b> у каждого модуля нажмите номер уровня, который у вас построен в игре («—» — ещё не построен). Ниже видно, что нужно для следующего уровня: другие модули, лояльность торговцев и предметы.</li>
+          <li><b>Нужные предметы:</b> общий список, что собрать для следующих уровней убежища и для невыполненных квестов. Кнопками − и + отмечайте, сколько уже лежит в схроне, — сайт посчитает, сколько осталось.</li>
+          <li><b>FiR</b> — предмет нужен найденным в рейде, купленный не подойдёт. Такие не продавайте.</li>
+        </ol>
+      </details>
       <div className="small muted">
         {progress.source === 'account' ? <>Уровни модулей сохраняются в аккаунте <b>{progress.auth.name}</b>. </> : <>Уровни модулей сохраняются на этом устройстве. </>}
         Запас предметов («есть») хранится на этом устройстве.
@@ -137,9 +150,10 @@ function Stations({ stations, stationById, built, setBuilt, byId, have, onItem, 
                 </div>
                 {next && <span className={`badge ${ok ? '' : 'warn'}`}>{ok ? 'можно строить' : 'нужны модули'}</span>}
               </div>
-              <div className="hd-levels" role="group" aria-label="Построенный уровень">
+              <div className="hd-levels pg-levels" role="group" aria-label={`${s.name}: построенный уровень`}>
                 {[0, ...s.levels.map((l) => l.level)].map((lv) => (
-                  <button key={lv} disabled={disabled} className={lv === b ? 'on' : lv < b ? 'past' : ''} onClick={() => setBuilt(s, lv)} title={lv === 0 ? 'Не построен' : `Построен уровень ${lv}`}>{lv === 0 ? '—' : lv}</button>
+                  <button key={lv} disabled={disabled} className={lv === b ? 'on' : lv < b ? 'past' : ''} onClick={() => setBuilt(s, lv)} aria-pressed={lv === b}
+                    title={lv === 0 ? 'Не построен' : `Построен уровень ${lv}`} aria-label={lv === 0 ? `${s.name}: не построен` : `${s.name}: построен уровень ${lv}`}>{lv === 0 ? '—' : lv}</button>
                 ))}
               </div>
               {next && (
@@ -247,6 +261,7 @@ function Needs({ stations, built, tasks, done, byId, have, setHave, onItem }: {
 
   return (
     <>
+      <div className="small muted pg-note">Что собрать для убежища и невыполненных квестов. Отмечайте, сколько уже есть, кнопками − и + — число хранится на этом устройстве. Нажмите на предмет, чтобы увидеть, где он нужен.</div>
       <div className="chips">
         {[['all', 'Квесты и убежище'], ['quests', 'Только квесты'], ['hideout', 'Только убежище']].map(([v, l]) => (
           <button key={v} className={src === v ? 'chip on' : 'chip'} onClick={() => setSrc(v)}>{l}</button>
@@ -288,10 +303,10 @@ function Needs({ stations, built, tasks, done, byId, have, setHave, onItem }: {
                     {it?.avg24hPrice ? ` · ${rub(it.avg24hPrice)}` : ''}
                   </div>
                 </div>
-                <div className="have">
-                  <button onClick={() => setHave(n.id, got - 1)} disabled={got <= 0} aria-label="Меньше">−</button>
-                  <input inputMode="numeric" value={got} onChange={(e) => setHave(n.id, Number(e.target.value.replace(/\D/g, '')) || 0)} aria-label="Есть" />
-                  <button onClick={() => setHave(n.id, got + 1)} aria-label="Больше">+</button>
+                <div className="have pg-have" title="Сколько уже есть (хранится на этом устройстве)">
+                  <button onClick={() => setHave(n.id, got - 1)} disabled={got <= 0} aria-label={`${it?.name || 'Предмет'}: на один меньше`}>−</button>
+                  <input inputMode="numeric" value={got} onChange={(e) => setHave(n.id, Number(e.target.value.replace(/\D/g, '')) || 0)} aria-label={`${it?.name || 'Предмет'}: сколько есть`} />
+                  <button onClick={() => setHave(n.id, got + 1)} aria-label={`${it?.name || 'Предмет'}: на один больше`}>+</button>
                   <span className="small">{rest === 0 ? '✓' : `ещё ${rest}`}</span>
                 </div>
               </div>

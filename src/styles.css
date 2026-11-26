@@ -635,3 +635,41 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 14px; }
 @media (max-width: 365px) { .nav-brand-text { display: none; } }
 /* Плашка «нет доступа»/«ошибка» у аватара не помещается рядом с названием сайта */
 @media (max-width: 860px) { .topbar:has(.auth .badge) .nav-brand-text { display: none; } }
+
+/* ===== ux-progress ===== */
+/* Квесты, Убежище, Терминал: подсказки новичку, «Где я сейчас», размеры касания на телефоне */
+.pg-anchor { scroll-margin-top: 72px; }
+.pg-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.pg-note { margin: 0 0 10px; }
+.pg-howto ol { margin: 8px 0 4px; } .pg-howto li + li { margin-top: 6px; }
+.pg-me { gap: 8px; }
+.pg-where { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.pg-where-label { font-weight: 700; }
+.pg-where select { min-height: 40px; font-size: 15px; font-weight: 600; max-width: 100%; flex: 1 1 220px; }
+.pg-steps { list-style: none; margin: 2px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.pg-steps li { display: flex; align-items: baseline; gap: 8px; font-size: 14px; }
+.pg-steps li.ok { color: var(--muted); }
+.pg-steps li.next { font-weight: 600; }
+.pg-mark { width: 1.1em; flex: none; text-align: center; color: var(--muted); }
+.pg-steps li.ok .pg-mark { color: var(--ok); }
+.pg-steps li.next .pg-mark { color: var(--accent); }
+.pg-steps .linkbtn, .pg-steps .link { white-space: nowrap; }
+.pg-toc { margin: 14px 0 0; }
+.pg-gaps { color: var(--accent); } .pg-gaps .btn.small { margin: 4px 0 0; }
+.pg-chapters { margin: 6px 0 4px; }
+.pg-chapters .badge { margin-left: 6px; }
+.tm-chapters label.pg-cur > span { font-weight: 600; }
+.pg-logs-help { margin-top: 4px; }
+.pg-logs-help > div > div + div { margin-top: 6px; }
+.pg-paths { margin: 4px 0 6px; padding-left: 18px; }
+.pg-paths code { word-break: break-all; }
+@media (max-width: 860px) { .chips.pg-wrap { flex-wrap: wrap; overflow: visible; } }
+@media (max-width: 640px) {
+  .quest input.pg-check { width: 24px; height: 24px; } /* .quest input[type=checkbox] — 0,2,1, здесь столько же и правило ниже */
+  .pg-levels button { min-width: 40px; height: 40px; }
+  .pg-have button { width: 40px; height: 40px; }
+  .pg-have input { height: 40px; }
+  .pg-ll button { width: 40px; height: 40px; }
+  .pg-toc .chip, .pg-wrap .chip { padding: 8px 14px; }
+  .pg-where select { min-height: 44px; font-size: 16px; }
+}

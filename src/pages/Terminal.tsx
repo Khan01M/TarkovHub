@@ -9,8 +9,19 @@ import { STORY_CHAPTERS } from '../guides';
 import {
   loadTerminal, SHORELINE_MAP_ID, HIDEOUT_REQS, ROUTES, PASS_KEY, chapterKey, routeOf, routeChanges, chaptersDone,
   personalSteps, summarize, teamReadiness, stationOrFallback, builtLevel, hoursText, chaptersBeforeText, groupIds, inGroup,
-  type TerminalData, type PassRule, type RouteId, type Member,
+  ALL_CHAPTERS_DONE, currentChapter, currentChapterIndex, chapterChanges, chaptersOutOfOrder, chapterStatusText,
+  linearChapterCount, fillChapterGaps,
+  type TerminalData, type PassRule, type RouteId, type Member, type Step,
 } from '../terminal';
+
+const noop = () => { /* ошибку сохранения показывает плашка над разделами */ };
+
+/** Разделы страницы — для быстрого перехода (якоря #id ломают роутер на хэше, поэтому прокрутка) */
+const SECTIONS: [string, string][] = [
+  ['pg-tm-how', 'Как попасть'], ['pg-tm-pass', 'Пропуск'], ['pg-tm-hideout', 'Убежище'],
+  ['pg-tm-story', 'Сюжет и концовка'], ['pg-tm-team', 'Команда'], ['pg-tm-raid', 'Перед рейдом'],
+];
+const goTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
 const SOURCES: [string, string][] = [
   ['Timesaver: карта Терминал — как попасть', 'https://timesaver.gg/blog/tarkov-terminal-map-escape-guide'],
@@ -50,26 +61,76 @@ export default function Terminal() {
   const sum = summarize(steps);
   const route = routeOf(done);
   const busy = progress.loading;
+  const locked = busy || !progress.canEdit;
+  const lin = linearChapterCount();
+  // Выбранная параллельная глава (после The Ticket) не обязательно первая неотмеченная — помним выбор, пока он верен
+  const [picked, setPicked] = useState<string | null>(null);
+  const pickedIdx = picked ? STORY_CHAPTERS.findIndex((c) => c.slug === picked) : -1;
+  const pickedOk = pickedIdx >= lin && !done[chapterKey(picked!)] && currentChapterIndex(done) >= lin;
+  const cur = pickedOk ? picked! : currentChapter(done);
+  const curIdx = pickedOk ? pickedIdx : currentChapterIndex(done);
+  const gaps = chaptersOutOfOrder(done);
+  const fill = fillChapterGaps(done);
+  const pick = (slug: string) => { setPicked(slug); setMarks(chapterChanges(slug)).catch(noop); };
+  const openSpoilers = () => { setSpoilers(true); setTimeout(() => goTo('pg-tm-route'), 0); };
+  const gapsHint = gaps && (
+    <div className="small pg-gaps">
+      Отмечены поздние главы, а {STORY_CHAPTERS.slice(0, lin).map((c) => c.name).join(' → ')} пройдены не все.{' '}
+      {Object.keys(fill).length > 0 && <button className="btn small" disabled={locked} onClick={() => setMarks(fill).catch(noop)}>Отметить пропущенные</button>}
+    </div>
+  );
 
   return (
     <section className="terminal">
       <h1>Терминал</h1>
-      <p className="lead">Финальная карта сюжета версии 1.0. Здесь — как туда попасть, где взять пропуск, что построить в убежище и готова ли вся команда.</p>
+      <p className="lead">Финальная карта сюжета версии 1.0. Отметьте, где вы сейчас, — сайт покажет, что осталось сделать до Терминала и готовы ли друзья.</p>
 
-      <div className="card tm-summary">
+      <div className="card tm-summary pg-me">
+        <label className="pg-where">
+          <span className="pg-where-label">Где я сейчас:</span>
+          <select value={cur} disabled={locked} onChange={(e) => pick(e.target.value)}>
+            <optgroup label="По порядку">
+              {STORY_CHAPTERS.slice(0, lin).map((c, i) => <option key={c.slug} value={c.slug}>глава {i + 1}. {c.name}</option>)}
+            </optgroup>
+            <optgroup label="После The Ticket, в любом порядке">
+              {STORY_CHAPTERS.slice(lin).map((c, i) => <option key={c.slug} value={c.slug}>глава {lin + i + 1}. {c.name}</option>)}
+            </optgroup>
+            <option value={ALL_CHAPTERS_DONE}>весь сюжет пройден</option>
+          </select>
+        </label>
+        <div className="small muted">
+          Выберите главу, которую проходите сейчас, — предыдущие отметятся пройденными. После The Ticket главы идут параллельно:
+          выбор такой главы не трогает остальные, их отмечайте по одной в разделе <button className="linkbtn" onClick={() => goTo('pg-tm-story')}>«Сюжет»</button>.
+          Игра не пишет главы в логи — отмечаете вы.
+        </div>
+        {gapsHint}
+
         <div className="progress">
           <div className="bar"><i style={{ width: `${sum.total ? (sum.done / sum.total) * 100 : 0}%` }} /></div>
           <span className="small">До Терминала: {sum.done} из {sum.total}</span>
         </div>
-        <div className="small">{sum.next ? <>Дальше: <b>{sum.next.label}</b></> : <b>Всё готово — можно идти на Терминал.</b>}</div>
+        <ul className="pg-steps">
+          {steps.map((s) => (
+            <li key={s.key} className={s.done ? 'ok' : s === sum.next ? 'next' : ''}>
+              <span className="pg-mark" aria-hidden="true">{s.done ? '✓' : s === sum.next ? '→' : '○'}</span>
+              <span className="grow">{s.label}<span className="pg-sr">{s.done ? ' — сделано' : ' — не сделано'}</span></span>
+              {!s.done && <StepLink step={s} onRoute={openSpoilers} />}
+            </li>
+          ))}
+        </ul>
+        {!sum.next && <div className="small"><b>Всё готово — можно идти на Терминал.</b></div>}
         <div className="small muted">
-          {progress.source === 'account' ? <>Отметки сохраняются в аккаунте <b>{auth.name}</b>.</> : <>Отметки сохраняются на этом устройстве.</>}
+          {progress.source === 'account' ? <>Отметки сохраняются в аккаунте <b>{auth.name}</b> — друзья видят их в разделе «Команда».</> : <>Отметки сохраняются на этом устройстве.</>}
         </div>
       </div>
       {progress.saveError && <div className="alert">Не удалось сохранить: {progress.saveError} <button className="btn small" onClick={progress.retry}>Повторить</button></div>}
-      {progress.loadError && <div className="alert">Не удалось загрузить прогресс: {progress.loadError} <button className="btn small" onClick={progress.reload}>Повторить</button></div>}
+      {progress.loadError && <div className="alert">Не удалось загрузить прогресс: {progress.loadError}. Пока он не загружен, отметки менять нельзя. <button className="btn small" onClick={progress.reload}>Повторить</button></div>}
 
-      <h2>Как попасть</h2>
+      <nav className="chips pg-toc pg-wrap" aria-label="Разделы страницы">
+        {SECTIONS.map(([id, t]) => <button key={id} className="chip" onClick={() => goTo(id)}>{t}</button>)}
+      </nav>
+
+      <h2 id="pg-tm-how" className="pg-anchor">Как попасть</h2>
       <div className="card">
         <p>На Терминал ведёт только <b>переход с Берега</b>{data?.transits[0] ? <> — точка «{data.transits[0].label}»</> : null}. Другого пути в данных игры нет. Для входа нужен пропуск{data?.passes.length ? ' (список ниже)' : ''}.</p>
         <p className="small">
@@ -83,16 +144,16 @@ export default function Terminal() {
         </ul>
       </div>
 
-      <h2>Пропуска</h2>
+      <h2 id="pg-tm-pass" className="pg-anchor">Пропуск</h2>
       <label className="card tm-have">
-        <input type="checkbox" checked={!!done[PASS_KEY]} disabled={busy} onChange={() => toggle(PASS_KEY)} />
+        <input type="checkbox" checked={!!done[PASS_KEY]} disabled={locked} onChange={() => toggle(PASS_KEY)} />
         <span><b>У меня есть пропуск на Терминал</b><span className="muted small"> — любой, который игра принимает на вход</span></span>
       </label>
       <State loading={loading} error={error} />
       {data && data.passes.length > 0 && <Passes data={data} />}
       {(data ? data.passes.length === 0 : !!error) && <div className="card small muted">В данных tarkov.dev для этого режима пропусков нет.</div>}
 
-      <h2>Убежище</h2>
+      <h2 id="pg-tm-hideout" className="pg-anchor">Убежище</h2>
       <div className="card">
         <div className="tm-hideout">
           {HIDEOUT_REQS.map((r) => {
@@ -111,25 +172,30 @@ export default function Terminal() {
         <div className="small muted">Уровни берутся из отметок на странице <a className="link" href="#/hideout">«Убежище»</a>. Генератор держите включённым: сюжетные крафты долгие.</div>
       </div>
 
-      <h2>Путь</h2>
+      <h2 id="pg-tm-story" className="pg-anchor">Сюжет и концовка</h2>
       <div className="card">
-        <div className="small muted">Главы сюжета по порядку. До Терминала нужно пройти {chaptersBeforeText()}; следующая глава, The Ticket, и ведёт на Терминал. Остальные идут параллельно. Отмечайте пройденные.</div>
-        <div className="tm-chapters">
-          {STORY_CHAPTERS.map((c, i) => (
-            <label key={c.slug} className={done[chapterKey(c.slug)] ? 'done' : ''}>
-              <input type="checkbox" checked={!!done[chapterKey(c.slug)]} disabled={busy} onChange={() => toggle(chapterKey(c.slug))} />
-              <span>{i + 1}. {c.name}{c.note ? <span className="muted small"> — {c.note}</span> : null}</span>
-            </label>
-          ))}
+        <div className="small">
+          Сейчас: <b>{!chaptersDone(done) ? 'не отмечено' : STORY_CHAPTERS[curIdx] ? `на главе ${STORY_CHAPTERS[curIdx].name}` : 'сюжет пройден'}</b> · пройдено глав {chaptersDone(done)} из {STORY_CHAPTERS.length}.
         </div>
-        <div className="small">Пройдено глав: {chaptersDone(done)} из {STORY_CHAPTERS.length}</div>
+        <div className="small muted">До Терминала нужно пройти {chaptersBeforeText()}; следующая глава, The Ticket, и ведёт на Терминал. Главы после неё идут параллельно, в любом порядке, — отмечайте их по одной.</div>
+        <details className="pg-chapters" open={gaps || undefined}>
+          <summary>Отметить главы по одной</summary>
+          <div className="tm-chapters">
+            {STORY_CHAPTERS.map((c, i) => (
+              <label key={c.slug} className={done[chapterKey(c.slug)] ? 'done' : i === curIdx ? 'pg-cur' : ''}>
+                <input type="checkbox" checked={!!done[chapterKey(c.slug)]} disabled={locked} onChange={() => toggle(chapterKey(c.slug))} />
+                <span>{i + 1}. {c.name}{i === curIdx && <span className="badge open">сейчас</span>}{c.note ? <span className="muted small"> — {c.note}</span> : null}</span>
+              </label>
+            ))}
+          </div>
+        </details>
 
-        <h3>Мой путь</h3>
-        <div className="small muted">Концовок четыре, путь выбирается решениями в главе The Ticket. Отметьте, к какой идёте — так команда увидит, кто определился.</div>
+        <h3 id="pg-tm-route" className="pg-anchor">Мой путь</h3>
+        <div className="small muted">Концовок четыре, путь выбирается решениями в главе The Ticket. Отметьте, к какой идёте, — так команда увидит, кто определился. Названия путей — спойлер.</div>
         {spoilers ? (
-          <div className="chips">
+          <div className="chips pg-wrap">
             {ROUTES.map((r) => (
-              <button key={r.id} className={route === r.id ? 'chip on' : 'chip'} disabled={busy} onClick={() => setMarks(routeChanges(done, r.id))}>{r.name}</button>
+              <button key={r.id} className={route === r.id ? 'chip on' : 'chip'} disabled={locked} aria-pressed={route === r.id} onClick={() => setMarks(routeChanges(done, r.id)).catch(noop)}>{r.name}</button>
             ))}
           </div>
         ) : (
@@ -170,10 +236,10 @@ export default function Terminal() {
         )}
       </div>
 
-      <h2>Готовность команды</h2>
+      <h2 id="pg-tm-team" className="pg-anchor">Готовность команды</h2>
       <TeamBlock progress={progress} team={team} rule={rule} setRule={setRule} spoilers={spoilers} />
 
-      <h2>Перед рейдом</h2>
+      <h2 id="pg-tm-raid" className="pg-anchor">Перед рейдом</h2>
       <div className="card">
         <ul className="small">
           <li>Совет: возьмите пропуск каждому — неизвестно, хватит ли одного на группу.</li>
@@ -191,6 +257,14 @@ export default function Terminal() {
       <p className="small muted">Данные о пропусках, рецептах и переходе — из tarkov.dev. Остальное — из сторонних гайдов; версии патча в них разные (от 1.2.5 до 1.3.6).</p>
     </section>
   );
+}
+
+/** Где сделать шаг: ссылка на раздел или страницу */
+function StepLink({ step, onRoute }: { step: Step; onRoute: () => void }) {
+  if (step.key.startsWith('hideout:')) return <a className="link small" href="#/hideout">в «Убежище» →</a>;
+  if (step.key === PASS_KEY) return <button className="linkbtn small" onClick={() => goTo('pg-tm-pass')}>где взять ↓</button>;
+  if (step.key === 't:route') return <button className="linkbtn small" onClick={onRoute}>выбрать ↓</button>;
+  return null; // главы — выбором «Где я сейчас» выше
 }
 
 // ---------- пропуска ----------
@@ -262,7 +336,8 @@ function TeamBlock({ progress, team, rule, setRule, spoilers }: {
     return (
       <div className="card small muted">
         {auth.status === 'signedOut' || auth.status === 'error'
-          ? <><button className="linkbtn" onClick={signIn}>Войдите через Discord</button>, чтобы видеть готовность друзей: каждый отмечает свои шаги у себя.</>
+          ? <>Здесь видно, кто из друзей готов к Терминалу: на какой он главе, есть ли пропуск и выбран ли путь.
+              Для этого все <button className="linkbtn" onClick={signIn}>входят через Discord</button> и отмечают свои шаги у себя.</>
           : auth.status === 'denied' ? <>У аккаунта <b>{auth.name}</b> нет доступа: вход только для игроков из списка.</>
           : auth.status === 'app' ? <>Готовность команды видна после входа на сайте khan01m.github.io/TarkovHub.</>
           : <>Готовность команды видна после входа в аккаунт.</>}
@@ -287,7 +362,7 @@ function TeamBlock({ progress, team, rule, setRule, spoilers }: {
       {all.length > 0 && (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>В группе</th><th>Игрок</th><th>Главы</th><th>Пропуск</th><th>Путь</th><th>Не хватает</th></tr></thead>
+            <thead><tr><th>В группе</th><th>Игрок</th><th>Сюжет</th><th>Пропуск</th><th>Путь</th><th>Не хватает</th></tr></thead>
             <tbody>
               {all.map((t) => {
                 const id = t.userId || t.name;
@@ -297,8 +372,8 @@ function TeamBlock({ progress, team, rule, setRule, spoilers }: {
                   <tr key={id} className={m ? '' : 'tm-out'}>
                     <td><input type="checkbox" checked={!!m} disabled={t.me} onChange={() => flip(id)} aria-label={`${t.name} в группе`} /></td>
                     <td>{t.me ? 'Я' : t.name}</td>
-                    <td>{chaptersDone(done)}/{STORY_CHAPTERS.length}</td>
-                    <td>{done.has(PASS_KEY) ? '✓' : '✗'}</td>
+                    <td title={`Пройдено глав: ${chaptersDone(done)} из ${STORY_CHAPTERS.length}`}>{chapterStatusText(done)}</td>
+                    <td>{done.has(PASS_KEY) ? <span aria-label="есть">✓</span> : <span aria-label="нет">✗</span>}</td>
                     <td>{routeName(routeOf(done))}</td>
                     <td className={!m ? 'muted' : m.missing.length ? 'down' : 'up'}>{!m ? 'не в группе' : m.missing.length ? m.missing.join(', ') : 'готов'}</td>
                   </tr>
@@ -310,8 +385,8 @@ function TeamBlock({ progress, team, rule, setRule, spoilers }: {
       )}
       <div className={`tm-verdict ${st.ready ? 'ok' : ''}`}>
         {team.loading && !all.length ? <><span className="spinner" /> Загружаю…</>
-          : team.error ? <span className="down">Не удалось загрузить команду: {team.error}</span>
-          : !all.length ? 'В команде пока никого нет.'
+          : team.error ? <><span className="down">Не удалось загрузить команду: {team.error}</span> <button className="btn small" onClick={team.reload}>Повторить</button></>
+          : !all.length ? 'В команде пока никого нет. Друзья появятся здесь, когда войдут через Discord на сайте.'
           : st.ready ? `Команда готова (считали так: ${ruleText})`
           : <>Ждём: {st.waiting.join('; ')} <span className="muted small">(считали так: {ruleText})</span></>}
       </div>

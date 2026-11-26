@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useData, State, Search, norm, safeUrl } from '../ui';
 import { num, loadTasks, getGameMode, GameMode } from '../api';
 import { useProgress, useTeam, Teammate, readLegacy, archiveLegacy, addLocal, readLocal, uploadMarks, useLazyNumber } from '../progress';
@@ -101,6 +101,11 @@ export default function Quests() {
   }, [byLoyalty, list, traderInfo, activeTrader, tasks, done]);
 
   const doneCount = tasks.filter((t) => done[t.id]).length;
+  // Инструкция открыта, если не отмечено ни одного квеста. Решаем один раз, когда загрузились квесты и прогресс,
+  // чтобы она не схлопывалась под пальцем при первой отметке.
+  const howtoOpen = useRef<boolean | null>(null);
+  // auth 'loading': useProgress пока читает локальные отметки — ждём, иначе у вошедшего она останется открытой
+  if (howtoOpen.current === null && data && !progress.loading && a.status !== 'loading') howtoOpen.current = !readOnly && doneCount === 0;
   const modeLabel = mode === 'pve' ? 'PvE' : 'PvP';
 
   const objDone = (t: (typeof tasks)[number]) => t.objectives.filter((o) => done['o:' + o.id]).length;
@@ -108,7 +113,7 @@ export default function Quests() {
   const card = (t: (typeof tasks)[number]) => (
     <div key={t.id} className={`card quest ${done[t.id] ? 'done' : ''}`}>
       <div className="row-main" onClick={() => setOpen(open === t.id ? null : t.id)}>
-        <input type="checkbox" checked={!!done[t.id]} onChange={() => !readOnly && toggle(t.id)} onClick={(e) => e.stopPropagation()} aria-label="Выполнено" disabled={!progress.canEdit || readOnly} />
+        <input type="checkbox" className="pg-check" checked={!!done[t.id]} onChange={() => !readOnly && toggle(t.id)} onClick={(e) => e.stopPropagation()} aria-label={`Выполнен: ${t.name}`} title={readOnly ? 'Только просмотр' : 'Отметить выполненным'} disabled={!progress.canEdit || readOnly} />
         <div className="grow">
           <div className="title">
             {t.name} {t.kappaRequired && <span className="badge">Каппа</span>}
@@ -162,11 +167,24 @@ export default function Quests() {
   return (
     <section>
       <h1>Квесты</h1>
-      <p className="lead">Что нужно сделать и где. Отмечайте выполненные квесты.</p>
+      <p className="lead">Что нужно сделать и где. Отмечайте выполненные квесты — сайт покажет, какие можно взять дальше.</p>
+      <details className="card howto pg-howto" open={howtoOpen.current || undefined}>
+        <summary><b>Как пользоваться</b></summary>
+        <ol className="small">
+          <li><b>Отметьте выполненные квесты</b> галочкой слева. Нажмите на квест — откроются цели, их можно отмечать по одной.</li>
+          <li><b>«Открытые сейчас»</b> — квесты, которые торговцы дают вам прямо сейчас. Укажите уровень ЧВК — список станет точнее. <b>«Все квесты»</b> — полный список, по торговцам и уровням лояльности (ЛЛ).</li>
+          <li><b>На ПК быстрее импорт из логов</b>: сайт сам отметит выполненные квесты по файлам игры.</li>
+          <li><b>Играете с друзьями?</b> Все входят через Discord — тогда у квеста видно, кто его уже сделал, а над списком появится команда: нажмите на друга, чтобы посмотреть его прогресс.</li>
+          <li>Новичку: начните с первых квестов Прапора и Терапевта — они простые и открывают следующие. Фильтр «Нужны для Каппы» пока можно не трогать.</li>
+        </ol>
+      </details>
       <ProgressPanel progress={progress} mode={mode} />
       {!readOnly && data && <LogImport progress={progress} tasks={data.tasks} mode={mode} />}
       {team.team.length > 1 && (
         <TeamBar team={team.team} tasks={tasks.map((t) => t.id)} viewing={viewed?.userId || a.userId || ''} onPick={(id) => setViewing(id === a.userId ? '' : id)} onRefresh={team.reload} loading={team.loading} />
+      )}
+      {progress.source === 'account' && !team.loading && !team.error && !team.missingTable && team.team.length <= 1 && (
+        <div className="small muted pg-note">Друзья появятся здесь, когда войдут через Discord на сайте, — тогда будет видно, кто какие квесты уже сделал.</div>
       )}
       {team.error && <div className="alert">Не удалось загрузить прогресс команды: {team.error} <button className="btn small" onClick={team.reload}>Повторить</button></div>}
       {readOnly && (
@@ -188,8 +206,8 @@ export default function Quests() {
               <input type="number" min={1} max={79} disabled={readOnly || !progress.canEdit} {...levelInput} />
             </label>
             {activeTrader && (
-              <span className="ll-pick">ЛЛ у торговца {activeTrader}:
-                {[1, 2, 3, 4].map((n) => <button key={n} disabled={readOnly} className={llOf(activeTrader) === n ? 'on' : ''} onClick={() => setLL(activeTrader, n)}>{n}</button>)}
+              <span className="ll-pick pg-ll">ЛЛ у торговца {activeTrader}:
+                {[1, 2, 3, 4].map((n) => <button key={n} disabled={readOnly} className={llOf(activeTrader) === n ? 'on' : ''} aria-pressed={llOf(activeTrader) === n} aria-label={`Лояльность ${n} у торговца ${activeTrader}`} onClick={() => setLL(activeTrader, n)}>{n}</button>)}
               </span>
             )}
           </div>
@@ -220,16 +238,23 @@ export default function Quests() {
       <div className="toolbar">
         <Search value={q} onChange={setQ} placeholder="Название квеста или предмет…" />
         {!byLoyalty && !onlyOpen && (
-          <select value={trader} onChange={(e) => setTrader(e.target.value)}><option value="">Все торговцы</option>{traders.map((t) => <option key={t}>{t}</option>)}</select>
+          <select value={trader} onChange={(e) => setTrader(e.target.value)} aria-label="Торговец"><option value="">Все торговцы</option>{traders.map((t) => <option key={t}>{t}</option>)}</select>
         )}
-        <select value={mapF} onChange={(e) => setMapF(e.target.value)}><option value="">Все карты</option>{maps.map((m) => <option key={m}>{m}</option>)}</select>
+        <select value={mapF} onChange={(e) => setMapF(e.target.value)} aria-label="Карта"><option value="">Все карты</option>{maps.map((m) => <option key={m}>{m}</option>)}</select>
       </div>
-      <div className="chips">
-        <button className={kappa ? 'chip on' : 'chip'} onClick={() => setKappa(!kappa)}>Нужны для Каппы</button>
-        {!onlyOpen && <button className={hideDone ? 'chip on' : 'chip'} onClick={() => setHideDone(!hideDone)}>Скрыть выполненные</button>}
+      <div className="chips pg-wrap">
+        <button className={kappa ? 'chip on' : 'chip'} aria-pressed={kappa} onClick={() => setKappa(!kappa)} title="Квесты, без которых не получить контейнер «Каппа» — самый большой защищённый контейнер. Цель на поздний вайп.">Нужны для Каппы</button>
+        {!onlyOpen && <button className={hideDone ? 'chip on' : 'chip'} aria-pressed={hideDone} onClick={() => setHideDone(!hideDone)}>Скрыть выполненные</button>}
+        {(kappa || mapF || q) && <button className="chip" onClick={() => { setKappa(false); setMapF(''); setQ(''); }}>✕ Сбросить фильтры</button>}
       </div>
+      {kappa && <div className="small muted pg-note">«Каппа» — самый большой защищённый контейнер, его дают за квест «Коллекционер». Здесь — квесты, которые для него нужно выполнить.</div>}
       <State loading={loading} error={error} />
-      {data && list.length === 0 && <div className="state">{onlyOpen ? 'Открытых квестов нет — проверьте уровень и лояльность или откройте «Все квесты»' : 'Ничего не найдено'}</div>}
+      {data && list.length === 0 && (
+        <div className="state">
+          {kappa || mapF || q ? 'Под выбранные фильтры квестов нет — сбросьте фильтры.'
+            : onlyOpen ? 'Открытых квестов нет — проверьте уровень ЧВК и лояльность или откройте «Все квесты».' : 'Ничего не найдено.'}
+        </div>
+      )}
       {byLoyalty ? (
         groups.map((g) => (
           <div key={g.ll} className="ll-group">
@@ -266,7 +291,7 @@ function LogImport({ progress, tasks, mode }: { progress: Progress; tasks: Task[
     setBusy(true); setMsg(null); setRes(null);
     try {
       const r = await parseLogs(files);
-      if (!r.length) setMsg('В выбранной папке не нашлось сообщений о квестах. Выберите папку Logs в папке Escape from Tarkov.');
+      if (!r.length) setMsg('В выбранной папке не нашлось сообщений о квестах. Выберите саму папку Logs в папке Escape from Tarkov (пути — в «Где папка Logs» ниже кнопки).');
       setRes(r);
     } catch (err: any) { setMsg('Не удалось прочитать логи: ' + (err?.message || err)); } finally { setBusy(false); }
   };
@@ -300,7 +325,20 @@ function LogImport({ progress, tasks, mode }: { progress: Progress; tasks: Task[
         {busy ? 'Читаю логи…' : 'Импорт из логов игры'}
         <input type="file" multiple hidden disabled={busy} onChange={pick} {...({ webkitdirectory: '', directory: '' } as any)} />
       </label>
-      <span className="muted small"> Выберите папку <b>Logs</b> в папке игры (лаунчер BSG: <code>Battlestate Games\Escape from Tarkov\Logs</code>, Steam: <code>steamapps\common\Escape from Tarkov\build\Logs</code>) — сайт отметит выполненные квесты. Файлы никуда не отправляются.</span>
+      <span className="muted small"> Отметит выполненные квесты по логам игры. Логи лежат на компьютере с игрой, файлы никуда не отправляются.</span>
+      <details className="pg-logs-help">
+        <summary>Где папка Logs и что импортируется</summary>
+        <div className="small">
+          <div>Нажмите кнопку и выберите папку <b>Logs</b> целиком:</div>
+          <ul className="pg-paths">
+            <li>лаунчер BSG: <code>…\Battlestate Games\Escape from Tarkov\Logs</code></li>
+            <li>Steam: <code>…\steamapps\common\Escape from Tarkov\build\Logs</code></li>
+          </ul>
+          <div><b>Импортируется:</b> выполненные квесты (и предыдущие по цепочкам), взятые и проваленные, история рейдов. Сначала покажем список — сохранится только после «Применить».</div>
+          <div><b>Не импортируется:</b> уровень ЧВК, лояльность, убежище и главы сюжета — игра не пишет их в логи. Уровень задайте ниже, убежище — на вкладке <a className="link" href="#/hideout">«Убежище»</a>, главы — в «Где я сейчас» на вкладке <a className="link" href="#/terminal">«Терминал»</a>.</div>
+          <div className="muted">В логах только то, что было за их даты, — более ранние квесты отметьте вручную.</div>
+        </div>
+      </details>
       {msg && <div className="alert info">{msg}</div>}
       {res?.map((r) => {
         const m = marksFromLogs(r, tasks);
@@ -386,7 +424,7 @@ function ProgressPanel({ progress, mode }: { progress: Progress; mode: GameMode 
     <div className="progress-panel">
       <div className="small muted">
         {source === 'account' && <>Прогресс сохраняется в аккаунте <b>{auth.name}</b> и виден на всех ваших устройствах.</>}
-        {source === 'local' && auth.status === 'signedOut' && <>Прогресс сохраняется только на этом устройстве. <button className="linkbtn" onClick={signIn}>Войдите через Discord</button>, чтобы он был виден и на телефоне, и на компьютере.</>}
+        {source === 'local' && auth.status === 'signedOut' && <>Прогресс сохраняется только на этом устройстве. <button className="linkbtn" onClick={signIn}>Войдите через Discord</button>, чтобы он был виден и на телефоне, и на компьютере, а друзья по команде видели, что вы уже сделали.</>}
         {source === 'local' && auth.status === 'denied' && <>У аккаунта <b>{auth.name}</b> нет доступа: вход только для игроков из списка. Прогресс сохраняется на этом устройстве.</>}
         {source === 'local' && auth.status === 'app' && <>Прогресс сохраняется на этом устройстве. Вход в аккаунт доступен на сайте khan01m.github.io/TarkovHub.</>}
         {source === 'local' && (auth.status === 'off' || auth.status === 'loading') && <>Прогресс сохраняется на этом устройстве.</>}
@@ -446,8 +484,8 @@ function TeamBar({ team, tasks, viewing, onPick, onRefresh, loading }: {
 }) {
   const ids = new Set(tasks);
   return (
-    <div className="teambar">
-      <span className="small muted">Команда:</span>
+    <div className="teambar" role="group" aria-label="Команда">
+      <span className="small muted">Команда (число — выполнено квестов; нажмите, чтобы посмотреть):</span>
       {team.map((t) => {
         const n = [...t.done].filter((id) => ids.has(id)).length;
         return (
