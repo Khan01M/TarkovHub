@@ -27,7 +27,7 @@ export function colorFor(r: number): string {
   const [rr, gg, bb] = rgbFor(r);
   return `rgb(${rr}, ${gg}, ${bb})`;
 }
-export function rgbFor(r: number): [number, number, number] {
+function rgbFor(r: number): [number, number, number] {
   if (r <= STOPS[0][0]) return STOPS[0][1];
   for (let i = 1; i < STOPS.length; i++) {
     const [x1, c1] = STOPS[i];

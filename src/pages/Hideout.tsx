@@ -192,6 +192,7 @@ function Needs({ stations, built, tasks, done, byId, have, setHave, onItem }: {
   const [q, setQ] = useState('');
   const [sort, setSort] = useStored('needsSort', 'uses');
   const [openId, setOpenId] = useState<string | null>(null);
+  const [faction] = useStored('questsFaction', '');             // фракция выбирается во вкладке «Квесты»
 
   const { needs, choices, money } = useMemo(() => {
     const m: Record<string, Need> = {};
@@ -204,7 +205,8 @@ function Needs({ stations, built, tasks, done, byId, have, setHave, onItem }: {
     };
     if (src !== 'hideout') {
       for (const t of tasks) {
-        if (done[t.id]) continue;
+        // выполненные, проваленные и квесты другой фракции предметов уже не требуют
+        if (done[t.id] || done['f:' + t.id] || (faction && t.faction && t.faction !== faction)) continue;
         for (const o of t.objectives) {
           if (!o.give || done['o:' + o.id]) continue;
           const g = o.give;
@@ -223,7 +225,7 @@ function Needs({ stations, built, tasks, done, byId, have, setHave, onItem }: {
       }
     }
     return { needs: Object.values(m), choices, money };
-  }, [src, scope, tasks, done, stations, built]);
+  }, [src, scope, faction, tasks, done, stations, built]);
 
   const nq = norm(q);
   const list = needs

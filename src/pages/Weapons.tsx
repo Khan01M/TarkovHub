@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useData, State, Search, norm, Img } from '../ui';
 import { rub, num, loadItems } from '../api';
 import type { Item } from '../api';
-import ItemModal, { rowImage } from '../components/ItemModal';
+import ItemModal, { rowImage, buyPrice } from '../components/ItemModal';
 
 
 // "Caliber556x45NATO" → "5.56x45 NATO"
@@ -50,7 +50,7 @@ function Guns() {
       recoil: (a, b) => (a.gun.recoilVertical || 0) - (b.gun.recoilVertical || 0),
       ergo: (a, b) => (b.gun.ergonomics || 0) - (a.gun.ergonomics || 0),
       rate: (a, b) => (b.gun.fireRate || 0) - (a.gun.fireRate || 0),
-      price: (a, b) => (a.avg24hPrice || 9e9) - (b.avg24hPrice || 9e9),
+      price: (a, b) => (buyPrice(a) || 9e9) - (buyPrice(b) || 9e9),
     };
     return list.sort(by[sort]);
   }, [data, q, cal, sort]);
@@ -76,7 +76,7 @@ function Guns() {
       <div className="glist">
         {guns.map((g: any) => {
           const p = g.gun;
-          const price = g.avg24hPrice || [...(g.buyFor || [])].sort((a: any, b: any) => a.priceRUB - b.priceRUB)[0]?.priceRUB;
+          const price = buyPrice(g);
           return (
             <button key={g.id} className="grow-row card" onClick={() => setOpen(g)}>
               <div className="gimg"><GunThumb it={g} /></div>
@@ -105,13 +105,6 @@ function GunThumb({ it }: { it: Item }) {
   if (!src || bad) return <Img src={it.iconLink} alt={it.shortName} size={64} />;
   return <img src={src} alt={it.shortName} loading="lazy" onError={() => setBad(true)} />;
 }
-
-// Цена патрона: средняя на барахолке, а если там его нет — самая дешёвая у торговцев
-const ammoPrice = (it: any) => {
-  if (it.avg24hPrice) return it.avg24hPrice;
-  const p = (it.buyFor || []).map((o: any) => o.priceRUB).filter((x: number) => x > 0);
-  return p.length ? Math.min(...p) : null;
-};
 
 function Ammo() {
   const { data, error, loading } = useData(loadItems);
@@ -151,7 +144,7 @@ function Ammo() {
                   <td><span className={`pen pen${penClass(a.penetrationPower)}`}>{a.penetrationPower}</span></td>
                   <td>{a.armorDamage}%</td>
                   <td>{a.initialSpeed} м/с</td>
-                  <td>{rub(ammoPrice(a.item))}</td>
+                  <td>{rub(buyPrice(a.item))}</td>
                 </tr>
               ))}
             </tbody>

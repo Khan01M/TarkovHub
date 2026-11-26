@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { GUIDES } from '../guides';
+import type { Guide } from '../guides';
 import { Search, norm, safeUrl } from '../ui';
 
 // Актуальное (ивент, сезон) — наверху списка
 const TOP = ['Ивент', 'Сезон'];
 const rank = (t: string) => (TOP.includes(t) ? TOP.indexOf(t) : TOP.length);
+
+// Текст для поиска: только то, что видит читатель (без имён полей и адресов ссылок)
+const searchText = (g: Guide) => norm([g.title, g.summary, ...g.blocks.flatMap((b) =>
+  [b.h, b.p, b.tip, b.warn, ...(b.list || []), ...(b.links || []).map(([t]) => t)])].filter(Boolean).join(' '));
+const SEARCH = new Map(GUIDES.map((g) => [g.id, searchText(g)]));
 
 export default function Guides() {
   const fromHash = () => location.hash.split('/')[2] || '';
@@ -18,7 +24,7 @@ export default function Guides() {
   const list = useMemo(() => {
     const nq = norm(q);
     return GUIDES.filter((x) => (!tag || x.tag === tag) &&
-      (!nq || norm(x.title + ' ' + x.summary + ' ' + JSON.stringify(x.blocks)).includes(nq)))
+      (!nq || SEARCH.get(x.id)!.includes(nq)))
       .sort((a, b) => rank(a.tag) - rank(b.tag));
   }, [tag, q]);
 
