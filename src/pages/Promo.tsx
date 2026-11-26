@@ -1,5 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import bundled from '../../public/promocodes.json';
+import { uploadMarks, useProgress } from '../progress';
+import {
+  migrateUsedCodes, mirrorLocal, promoChanges, promoKey, promoProgressMode, readOwner, readUsedLocal, sameMarks, usedInAccount, writeUsedLocal,
+} from '../promo';
 
 // Список промокодов живёт в public/promocodes.json.
 // Сайт и приложения (EXE, APK) берут свежую версию с сайта, поэтому для
@@ -63,14 +67,88 @@ function usePromo() {
   return { data, live };
 }
 
-function useUsed() {
-  const [used, setUsed] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem('usedCodes') || '{}') || {}; } catch { return {}; } });
-  const toggle = (c: string) => setUsed((u) => {
-    const n = { ...u, [c]: !u[c] };
-    try { localStorage.setItem('usedCodes', JSON.stringify(n)); } catch { /* ignore */ }
-    return n;
-  });
-  return [used, toggle] as const;
+const noop = () => { /* ошибку показывает saveError */ };
+
+/** Отметки «Я уже активировал»: без входа — в браузере, у игрока из списка — в аккаунте (см. promo.ts) */
+function useUsed(codes: Code[]) {
+  const regular = useProgress('regular');
+  const pve = useProgress('pve');
+  const auth = regular.auth;
+  const account = regular.source === 'account' && pve.source === 'account' ? auth.userId || null : null;
+  // Аккаунт «прочитан», когда оба режима прошли загрузку после входа. Сразу после входа useProgress
+  // ещё на кадр отдаёт локальные отметки с loading=false — поэтому ждём, пока загрузка начнётся и кончится.
+  const sawLoading = useRef('');
+  if (account && (regular.loading || pve.loading)) sawLoading.current = account;
+  const settled = !!account && sawLoading.current === account && !regular.loading && !pve.loading;
+  const ready = settled && regular.canEdit && pve.canEdit;
+  const [local, setLocal] = useState(readUsedLocal);
+
+  const modeOf = useMemo(() => {
+    const m = new Map(codes.map((c) => [c.code, c.mode]));
+    return (code: string) => promoProgressMode(m.get(code));
+  }, [codes]);
+
+  // usedCodes этого устройства — отметки его хозяина (первого вошедшего); у других аккаунтов их не показываем
+  const owner = readOwner();
+  const mine = !!account && (!owner || owner === account);
+
+  // Однократный перенос отметок из браузера в аккаунт хозяина
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [migratedFor, setMigratedFor] = useState('');
+  const started = useRef('');
+  useEffect(() => {
+    if (!ready || !account || started.current === account) return;
+    started.current = account;
+    setSyncing(true); setSyncError(null);
+    migrateUsedCodes(account, modeOf, uploadMarks)
+      // Перенесли — перечитываем аккаунт и только потом убираем «идёт перенос», чтобы галочки не мигали
+      .then((n) => (n ? Promise.all([regular.reload(), pve.reload()]) : undefined))
+      .then(() => setMigratedFor(account))
+      .catch((e: any) => { started.current = ''; setSyncError(e?.message || String(e)); })
+      .finally(() => setSyncing(false));
+  }, [ready, account]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // После переноса usedCodes хозяина повторяют аккаунт: после выхода браузер показывает то же, что было в аккаунте
+  useEffect(() => {
+    if (!ready || syncing || !account || migratedFor !== account || readOwner() !== account) return;
+    const n = mirrorLocal(local, regular.done, pve.done);
+    if (!sameMarks(local, n)) { writeUsedLocal(n); setLocal(n); }
+  }, [ready, syncing, account, migratedFor, local, regular.done, pve.done]);
+
+  const inAccount = (code: string) => !!account && !!promoKey(code);
+  // Пока аккаунт грузится или перенос не закончен, хозяину показываем и отметки из браузера, чтобы галочки не мигали
+  const showLocal = mine && (!ready || syncing || migratedFor !== account);
+  const isUsed = useCallback((code: string) => (!!account && !!promoKey(code)
+    ? usedInAccount(code, regular.done, pve.done) || (showLocal && !!local[code])
+    : !!local[code]), [account, showLocal, local, regular.done, pve.done]);
+  const canToggle = (code: string) => !inAccount(code) || (ready && !syncing);
+
+  const toggle = (c: Code) => {
+    if (inAccount(c.code)) {
+      if (!canToggle(c.code)) return;
+      const ch = promoChanges(c.code, promoProgressMode(c.mode), !isUsed(c.code), regular.done, pve.done);
+      if (Object.keys(ch.regular).length) regular.setMarks(ch.regular).catch(noop);
+      if (Object.keys(ch.pve).length) pve.setMarks(ch.pve).catch(noop);
+      return;
+    }
+    setLocal((u) => {
+      const n = { ...u };
+      if (n[c.code]) delete n[c.code]; else n[c.code] = true;
+      writeUsedLocal(n);
+      return n;
+    });
+  };
+
+  const loadError = account ? regular.loadError || pve.loadError : null;
+  const saveError = account ? regular.saveError || pve.saveError : null;
+  const retry = () => {
+    if (regular.loadError) regular.reload(); else regular.retry();
+    if (pve.loadError) pve.reload(); else pve.retry();
+  };
+  // Где хранятся отметки — пишем, только когда это уже известно точно
+  const where: 'account' | 'local' | null = auth.status === 'loading' ? null : account ? (settled ? 'account' : null) : 'local';
+  return { isUsed, canToggle, toggle, where, authStatus: auth.status, loadError, saveError, syncError, retry };
 }
 
 const dateRu = (s?: string) => {
@@ -81,7 +159,7 @@ const dateRu = (s?: string) => {
 
 export default function Promo() {
   const { data, live } = usePromo();
-  const [used, toggleUsed] = useUsed();
+  const used = useUsed(data.codes);
   const [mode, setMode] = useState<'' | Code['mode']>('');
   const [hideUsed, setHideUsed] = useState(false);
   const [copied, setCopied] = useState('');
@@ -94,9 +172,9 @@ export default function Promo() {
     .filter((c) => c.status !== 'expired')
     .filter((c) => !mode || c.mode === mode || c.mode === 'unknown'), [data, mode]);
   const codes = useMemo(() => forMode
-    .filter((c) => !hideUsed || !used[c.code])
+    .filter((c) => !hideUsed || !used.isUsed(c.code))
     .sort((a, b) => (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1) || (b.added || '').localeCompare(a.added || '')),
-  [forMode, hideUsed, used]);
+  [forMode, hideUsed, used.isUsed]);
   const expired = data.codes.filter((c) => c.status === 'expired');
 
   const copy = async (code: string) => {
@@ -134,6 +212,23 @@ export default function Promo() {
         ))}
         <button className={hideUsed ? 'chip on' : 'chip'} onClick={() => setHideUsed(!hideUsed)}>Скрыть активированные</button>
       </div>
+      {used.where && (
+        <p className="muted small">
+          {used.where === 'account'
+            ? 'Отметки «Я уже активировал» хранятся в аккаунте — видны на всех ваших устройствах.'
+            : `Отметки «Я уже активировал» хранятся только ${used.authStatus === 'app' ? 'на этом устройстве' : 'в этом браузере'}.`
+              + (used.authStatus === 'signedOut' ? ' Войдите через Discord (кнопка «Войти» вверху), чтобы они сохранялись в аккаунте.' : '')}
+        </p>
+      )}
+      {used.loadError && (
+        <div className="alert">Не удалось загрузить отметки из аккаунта — пока их нельзя менять. ({used.loadError}) <button className="btn small" onClick={used.retry}>Повторить</button></div>
+      )}
+      {used.saveError && !used.loadError && (
+        <div className="alert">Отметка не сохранилась в аккаунт. ({used.saveError}) <button className="btn small" onClick={used.retry}>Повторить</button></div>
+      )}
+      {used.syncError && (
+        <div className="alert">Не удалось перенести отметки из браузера в аккаунт — попробуем при следующем заходе. ({used.syncError})</div>
+      )}
 
       {codes.length === 0 && (
         <div className="ref-empty">
@@ -144,7 +239,7 @@ export default function Promo() {
       )}
       <div className="cards">
         {codes.map((c) => (
-          <div key={c.code} className={`card promo ${used[c.code] ? 'used' : ''}`}>
+          <div key={c.code} className={`card promo ${used.isUsed(c.code) ? 'used' : ''}`}>
             <div className="promo-top">
               <code className="promo-code">{c.code}</code>
               <button className="btn small" onClick={() => copy(c.code)}>{copied === c.code ? 'Скопировано ✓' : 'Копировать'}</button>
@@ -157,7 +252,7 @@ export default function Promo() {
             <div className="small">{c.rewards}</div>
             {c.noteText && <div className="muted small">{c.noteText}</div>}
             <label className="small used-check">
-              <input type="checkbox" checked={!!used[c.code]} onChange={() => toggleUsed(c.code)} /> Я уже активировал
+              <input type="checkbox" checked={used.isUsed(c.code)} disabled={!used.canToggle(c.code)} onChange={() => used.toggle(c)} /> Я уже активировал
             </label>
           </div>
         ))}
