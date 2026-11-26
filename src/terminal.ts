@@ -218,6 +218,86 @@ export function routeChanges(done: Marks, id: RouteId | null): Record<string, bo
   return ch;
 }
 export const chaptersDone = (done: Marks) => STORY_CHAPTERS.filter((c) => has(done, chapterKey(c.slug))).length;
+
+// ---------- «Где я сейчас» ----------
+// Главы игра не пишет ни в логи, ни в tarkov.dev — игрок отмечает их сам.
+// Сюжет: линейная часть (Tour → Falling Skies → The Ticket), после неё главы идут параллельно.
+// Текущая глава — первая неотмеченная.
+
+/** Значение «весь сюжет пройден» в выборе текущей главы */
+export const ALL_CHAPTERS_DONE = 'all';
+/** Последняя глава линейной части; после неё главы идут параллельно */
+export const LAST_LINEAR_CHAPTER = 'the-ticket';
+
+/** Сколько глав в начале STORY_CHAPTERS идут строго по порядку (до The Ticket включительно) */
+export function linearChapterCount(): number {
+  const i = STORY_CHAPTERS.findIndex((c) => c.slug === LAST_LINEAR_CHAPTER);
+  return i < 0 ? CHAPTERS_BEFORE.length : i + 1;
+}
+
+/** Индекс текущей главы в STORY_CHAPTERS — первой неотмеченной; STORY_CHAPTERS.length, если отмечены все */
+export function currentChapterIndex(done: Marks): number {
+  const i = STORY_CHAPTERS.findIndex((c) => !has(done, chapterKey(c.slug)));
+  return i < 0 ? STORY_CHAPTERS.length : i;
+}
+
+/** slug текущей главы или ALL_CHAPTERS_DONE */
+export function currentChapter(done: Marks): string {
+  return STORY_CHAPTERS[currentChapterIndex(done)]?.slug ?? ALL_CHAPTERS_DONE;
+}
+
+/**
+ * Изменения отметок для выбора «Где я сейчас»:
+ * - глава линейной части — главы до неё пройдены, она и все следующие (включая параллельные) — нет:
+ *   кто ещё не прошёл The Ticket, поздних глав пройти не мог;
+ * - параллельная глава (после The Ticket) — вся линейная часть пройдена, выбранная — нет,
+ *   остальные параллельные главы не трогаем (они идут независимо, а снятие в аккаунте видят друзья);
+ * - ALL_CHAPTERS_DONE — отметить все. Неизвестный slug — без изменений.
+ */
+export function chapterChanges(slug: string): Record<string, boolean> {
+  const n = slug === ALL_CHAPTERS_DONE ? STORY_CHAPTERS.length : STORY_CHAPTERS.findIndex((c) => c.slug === slug);
+  if (n < 0) return {};
+  const lin = linearChapterCount();
+  const ch: Record<string, boolean> = {};
+  if (n === STORY_CHAPTERS.length || n < lin) {
+    STORY_CHAPTERS.forEach((c, i) => { ch[chapterKey(c.slug)] = i < n; });
+  } else {
+    STORY_CHAPTERS.slice(0, lin).forEach((c) => { ch[chapterKey(c.slug)] = true; });
+    ch[chapterKey(slug)] = false;
+  }
+  return ch;
+}
+
+/**
+ * Отметки противоречат порядку: линейная часть пройдена не вся, а дальше есть отмеченные главы.
+ * Пропуски среди параллельных глав — норма, это не «нарушение».
+ */
+export function chaptersOutOfOrder(done: Marks): boolean {
+  const cur = currentChapterIndex(done);
+  if (cur >= linearChapterCount()) return false;
+  return STORY_CHAPTERS.slice(cur + 1).some((c) => has(done, chapterKey(c.slug)));
+}
+
+/**
+ * Исправить chaptersOutOfOrder, ничего не снимая: отметить пропущенные главы линейной части,
+ * которые точно пройдены, раз отмечена более поздняя глава. Нечего исправлять — {}.
+ */
+export function fillChapterGaps(done: Marks): Record<string, boolean> {
+  let last = -1;
+  STORY_CHAPTERS.forEach((c, i) => { if (has(done, chapterKey(c.slug))) last = i; });
+  // параллельная отмечена — пройдена вся линейная часть; нет отметок (last = -1) — нечего исправлять
+  const upTo = Math.max(0, Math.min(last, linearChapterCount()));
+  const ch: Record<string, boolean> = {};
+  STORY_CHAPTERS.slice(0, upTo).forEach((c) => { if (!has(done, chapterKey(c.slug))) ch[chapterKey(c.slug)] = true; });
+  return ch;
+}
+
+/** Подпись для таблицы команды и сводки: «на главе Falling Skies», «сюжет пройден», «не отмечено» */
+export function chapterStatusText(done: Marks): string {
+  if (!chaptersDone(done)) return 'не отмечено';
+  const c = STORY_CHAPTERS[currentChapterIndex(done)];
+  return c ? `на главе ${c.name}` : 'сюжет пройден';
+}
 /** Есть ли у игрока хоть одна отметка вкладки «Терминал» */
 export function hasTerminalProgress(done: Marks): boolean {
   const keys = done instanceof Set ? [...done] : Object.keys(done).filter((k) => done[k]);
