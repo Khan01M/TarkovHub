@@ -77,9 +77,11 @@ const MIN_SIZE: Record<string, [(d: any) => number, number]> = {
   hideout: [(d) => size(d), 5],
 };
 
+const NO_RU = new Set(['crafts']);
 async function dataset(name: string): Promise<{ data: any; ru: Dict }> {
   const mode = getGameMode();
-  const [main, ru] = await Promise.all([getJson(`${mode}/${name}`), getRu(`${mode}/${name}_ru`)]);
+  // У некоторых наборов перевода нет (crafts_ru отвечает 404) — не запрашиваем, чтобы не сыпать ошибками в консоль
+  const [main, ru] = await Promise.all([getJson(`${mode}/${name}`), NO_RU.has(name) ? Promise.resolve({} as Dict) : getRu(`${mode}/${name}_ru`)]);
   const data = main?.data ?? {};
   const check = MIN_SIZE[name];
   if (check && check[0](data) <= check[1]) throw new Error(`Набор ${name} пустой или неполный — формат данных мог измениться`);
