@@ -17,12 +17,12 @@ const FACTION: Record<string, { label: string; color: string }> = {
 };
 
 type View = { rot: number; flip: boolean };
-const loadView = (id: string): View => { try { return JSON.parse(localStorage.getItem('view:' + id) || '') } catch { return { rot: 0, flip: false }; } };
+const loadView = (id: string): View => { try { return JSON.parse(localStorage.getItem('view:' + id) || '') || { rot: 0, flip: false }; } catch { return { rot: 0, flip: false }; } };
 
 export default function Maps() {
   const { data, error, loading } = useData(loadMaps);
   const maps = useMemo(() => (data?.maps || []).filter((m: any) => m.name).sort((a: any, b: any) => a.name.localeCompare(b.name, 'ru')), [data]);
-  const [sel, setSel] = useState<string>(() => localStorage.getItem('map') || '');
+  const [sel, setSel] = useState<string>(() => { try { return localStorage.getItem('map') || ''; } catch { return ''; } });
   // Переход из «Обзора»: карта выбрана по id
   useEffect(() => {
     if (!maps.length) return;
@@ -72,7 +72,7 @@ export default function Maps() {
   const [hint, setHint] = useState('');
   const [show, setShow] = useState({ pmc: true, scav: true, shared: true, spawns: false, quests: true });
 
-  const pick = (n: string) => { setSel(n); localStorage.setItem('map', n); setTrack([]); };
+  const pick = (n: string) => { setSel(n); try { localStorage.setItem('map', n); } catch { /* ignore */ } setTrack([]); };
 
   // Интеграция с игрой (только в версии для ПК)
   useEffect(() => {
@@ -201,7 +201,7 @@ function dedupe(bosses: any[]) {
 function MapCanvas({ map, track, show, quests = [], selected, onSelect }: { map: any; track: Pos[]; show: Record<string, boolean>; quests?: QuestPin[]; selected?: string | null; onSelect?: (id: string | null) => void }) {
   const [view, setView] = useState<View>(() => loadView(map.id));
   useEffect(() => setView(loadView(map.id)), [map.id]);
-  const save = (v: View) => { setView(v); localStorage.setItem('view:' + map.id, JSON.stringify(v)); };
+  const save = (v: View) => { setView(v); try { localStorage.setItem('view:' + map.id, JSON.stringify(v)); } catch { /* ignore */ } };
 
   const extracts = (map.extracts || []).filter((e: any) => e.position && show[e.faction] !== false);
   const spawns = show.spawns ? (map.spawns || []).filter((s: any) => s.position) : [];
