@@ -23,24 +23,67 @@ export function setGameMode(m: GameMode) {
 type Dict = Record<string, string>;
 
 // ---------- загрузка исходных наборов ----------
-const raw = new Map<string, Promise<any>>();
+// tarkov.dev отдаёт Cache-Control: max-age=691200 (8 суток). Без cache: 'no-cache' браузер
+// неделю отдаёт ответ с диска, поэтому спрашиваем сервер каждый раз (по ETag придёт 304).
+// Нет сети или таймаут — берём копию из HTTP-кэша браузера (force-cache).
+const FETCH_TIMEOUT_MS = 20 * 1000; // items весит ~1.8 МБ сжатым — на медленной сети нужен запас
+const FALLBACK_TIMEOUT_MS = 10 * 1000;
+
+async function fetchJson(url: string, cache: RequestCache, timeout: number): Promise<any> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeout);
+  try {
+    const r = await fetch(url, { headers: { Accept: 'application/json' }, cache, signal: ctl.signal });
+    if (!r.ok) throw new Error(`Сервер ответил ${r.status}`);
+    return await r.json(); // таймаут действует и на чтение тела
+  } catch (e: any) {
+    if (e?.name === 'AbortError') throw new Error('Сервер не ответил вовремя');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Сырые ответы держим в памяти не дольше TTL_MS, иначе повторная загрузка взяла бы старый ответ
+const raw = new Map<string, { t: number; p: Promise<any> }>();
 
 function getJson(path: string): Promise<any> {
-  if (!raw.has(path)) {
-    const p = fetch(BASE + path, { headers: { Accept: 'application/json' } }).then((r) => {
-      if (!r.ok) throw new Error(`Сервер ответил ${r.status}`);
-      return r.json();
-    });
-    p.catch(() => raw.delete(path)); // при ошибке разрешаем повторить запрос
-    raw.set(path, p);
-  }
-  return raw.get(path)!;
+  const hit = raw.get(path);
+  if (hit && Date.now() - hit.t < TTL_MS) return hit.p;
+  const url = BASE + path;
+  const p = fetchJson(url, 'no-cache', FETCH_TIMEOUT_MS)
+    .catch(() => fetchJson(url, 'force-cache', FALLBACK_TIMEOUT_MS)); // одна попытка: офлайн-копия
+  const entry = { t: Date.now(), p };
+  p.catch(() => { if (raw.get(path) === entry) raw.delete(path); }); // при ошибке разрешаем повторить запрос
+  raw.set(path, entry);
+  return p;
 }
+
+// Счётчик неудачных загрузок перевода: load() по нему понимает, что результат без русских названий
+let ruFails = 0;
+function getRu(path: string): Promise<Dict> {
+  return getJson(path).then((d) => d?.data ?? {}).catch(() => { ruFails++; return {}; });
+}
+
+// Минимальный правдоподобный размер ключевого набора (с запасом от реальных цифр на 11.2026:
+// предметов ~5500, квестов ~500, карт 19, торговцев 16, станций убежища 26).
+// Меньше — значит сменился формат или пришёл обрезанный ответ: бросаем ошибку, load() отдаст stale-копию.
+const size = (x: any) => (x ? (Array.isArray(x) ? x.length : Object.keys(x).length) : 0);
+const MIN_SIZE: Record<string, [(d: any) => number, number]> = {
+  items: [(d) => size(d.items), 1000],
+  tasks: [(d) => size(d.tasks), 100],
+  maps: [(d) => size(d.maps), 5],
+  traders: [(d) => size(d), 3],
+  hideout: [(d) => size(d), 5],
+};
 
 async function dataset(name: string): Promise<{ data: any; ru: Dict }> {
   const mode = getGameMode();
-  const [main, ru] = await Promise.all([getJson(`${mode}/${name}`), getJson(`${mode}/${name}_ru`).catch(() => ({ data: {} }))]);
-  return { data: main?.data ?? {}, ru: ru?.data ?? {} };
+  const [main, ru] = await Promise.all([getJson(`${mode}/${name}`), getRu(`${mode}/${name}_ru`)]);
+  const data = main?.data ?? {};
+  const check = MIN_SIZE[name];
+  if (check && check[0](data) <= check[1]) throw new Error(`Набор ${name} пустой или неполный — формат данных мог измениться`);
+  return { data, ru };
 }
 
 /** Сырой набор данных с переводом — для своих расчётов */
@@ -56,36 +99,84 @@ const MOB_RU: Record<string, string> = {
 };
 
 // ---------- кэш готовых результатов ----------
-function cacheGet(key: string, allowStale = false) {
+// Ключи: `${CACHE_PREFIX}<набор>:<режим>`. При смене формата результата поднимаем версию в префиксе.
+const CACHE_PREFIX = 'data:v8:';
+
+// Старые версии кэша (data:v2 … data:v7) никто не удаляет, а localStorage почти забит —
+// чистим один раз при загрузке модуля. Трогаем только ключи data:*, пользовательские не трогаем.
+try {
+  const old: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith('data:') && !k.startsWith(CACHE_PREFIX)) old.push(k);
+  }
+  old.forEach((k) => localStorage.removeItem(k));
+} catch { /* ignore */ }
+
+function cacheRead(key: string): { t: number; data: any } | null {
   try {
     const s = localStorage.getItem(key);
     if (!s) return null;
     const { t, data } = JSON.parse(s);
-    if (allowStale || Date.now() - t < TTL_MS) return data;
-  } catch { /* ignore */ }
-  return null;
+    return data ? { t: Number(t) || 0, data } : null;
+  } catch { return null; }
+}
+function cacheGet(key: string, allowStale = false) {
+  const c = cacheRead(key);
+  return c && (allowStale || Date.now() - c.t < TTL_MS) ? c.data : null;
 }
 function cacheSet(key: string, data: unknown) {
-  try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), data })); } catch { /* квота — не страшно */ }
+  const s = JSON.stringify({ t: Date.now(), data });
+  try { localStorage.setItem(key, s); return; } catch { /* скорее всего квота */ }
+  // Квота: освобождаем место за счёт кэша данных другого режима и пробуем ещё раз
+  try {
+    const mode = key.slice(key.lastIndexOf(':') + 1);
+    const other: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(CACHE_PREFIX) && !k.endsWith(`:${mode}`)) other.push(k);
+    }
+    other.forEach((k) => localStorage.removeItem(k));
+    localStorage.setItem(key, s);
+  } catch { /* всё равно не влезло — не страшно, работаем из памяти */ }
 }
 
-const done = new Map<string, Promise<any>>();
+// Результаты в памяти: t — когда получены; старше TTL_MS считаются протухшими
+const done = new Map<string, { t: number; p: Promise<any> }>();
 
 /** Загружает данные через loader с кэшем. Без сети отдаёт последний сохранённый результат. */
 export function load<T>(name: string, loader: () => Promise<T>): Promise<T> {
-  const key = `data:v8:${name}:${getGameMode()}`;
-  if (done.has(key)) return done.get(key)!;
-  const fresh = cacheGet(key);
-  if (fresh) return Promise.resolve(fresh);
+  const key = `${CACHE_PREFIX}${name}:${getGameMode()}`;
+  const hit = done.get(key);
+  if (hit && Date.now() - hit.t < TTL_MS) return hit.p;
+  const c = cacheRead(key);
+  if (c && Date.now() - c.t < TTL_MS) {
+    // свежая копия из localStorage — запоминаем, чтобы не парсить мегабайты JSON на каждом монтировании
+    const p = Promise.resolve(c.data);
+    done.set(key, { t: c.t, p });
+    return p;
+  }
+  const forget = () => { if (done.get(key) === entry) done.delete(key); };
+  const fails = ruFails;
   const p = loader()
-    .then((d) => { cacheSet(key, d); return d; })
+    .then((d) => {
+      if (ruFails !== fails) {
+        // Перевод не загрузился: лучше старая полная копия; если её нет — отдаём как есть,
+        // но не сохраняем и не запоминаем, чтобы следующий вызов попробовал снова
+        forget();
+        return cacheGet(key, true) ?? d;
+      }
+      cacheSet(key, d);
+      return d;
+    })
     .catch((e) => {
-      done.delete(key);
+      forget();
       const stale = cacheGet(key, true);
       if (stale) return stale;
       throw e;
     });
-  done.set(key, p);
+  const entry = { t: Date.now(), p };
+  done.set(key, entry);
   return p;
 }
 
@@ -268,7 +359,7 @@ export type Task = {
 export const loadTasks = () => load<{ tasks: Task[]; traders: TraderInfo[] }>('tasks', async () => {
   const mode = getGameMode();
   const [{ data, ru }, info, mapsRu] = await Promise.all([
-    dataset('tasks'), traderInfo(), getJson(`${mode}/maps_ru`).then((d) => d?.data ?? {}).catch(() => ({})),
+    dataset('tasks'), traderInfo(), getRu(`${mode}/maps_ru`),
   ]);
   const traders: Record<string, string> = Object.fromEntries(Object.entries(info).map(([id, t]) => [id, t.name]));
   const fmt = (n: number) => new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(n);
