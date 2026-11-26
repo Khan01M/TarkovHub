@@ -10,6 +10,7 @@ import Guides from './pages/Guides';
 import Promo from './pages/Promo';
 import Overview from './pages/Overview';
 import Hideout from './pages/Hideout';
+import Terminal from './pages/Terminal';
 import { useAuth, signIn, signOut } from './auth';
 import { THEMES, getTheme, setTheme, ThemeId } from './theme';
 
@@ -25,6 +26,8 @@ const ROUTES: { id: string; label: string; short?: string; icon: string; el: () 
   // Промокоды на телефоне — с главной, чтобы нижняя панель не была тесной
   { id: 'promo', label: 'Промокоды', short: 'Коды', icon: '★', el: Promo, noTab: true },
   { id: 'guides', label: 'Гайды', icon: '☰', el: Guides, noTab: true },
+  // Терминал — тоже с главной: нижняя панель на телефоне и так заполнена
+  { id: 'terminal', label: 'Терминал', icon: '⚑', el: Terminal, noTab: true },
 ];
 
 // Роутинг через #hash — работает и на сайте, и в EXE (file://), и в APK.
