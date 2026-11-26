@@ -11,10 +11,10 @@ import { loadTerminalTransits } from '../terminal';
 import { PinMark, QuestPin, TYPE_ICON } from '../components/Pin';
 
 
-const FACTION: Record<string, { label: string; color: string }> = {
-  pmc: { label: 'ЧВК', color: '#5fbf6a' },
-  scav: { label: 'Дикий', color: '#d9b84a' },
-  shared: { label: 'Общий', color: '#4fa3d9' },
+const FACTION: Record<string, { label: string; color: string; hint: string }> = {
+  pmc: { label: 'ЧВК', color: '#5fbf6a', hint: 'Только для ЧВК. Какие из них открыты, зависит от точки появления' },
+  scav: { label: 'Дикий', color: '#d9b84a', hint: 'Только для Дикого' },
+  shared: { label: 'Общий', color: '#4fa3d9', hint: 'Для ЧВК и Дикого. Часто с условием: заплатить, снять рюкзак, включить рубильник' },
 };
 
 type View = { rot: number; flip: boolean };
@@ -33,6 +33,8 @@ export default function Maps() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maps]);
   const map = maps.find((m: any) => m.normalizedName === sel) || maps[0];
+  // Боссы, у которых есть страница в «Боссах» (там тот же список data.bosses) — только на них ставим ссылку
+  const bossPages = useMemo(() => new Set((data?.bosses || []).map((b) => b.normalizedName)), [data]);
 
   // Слой квестов: точки текущих заданий на этой карте
   const qd = useData(loadQuestData);
@@ -102,12 +104,13 @@ export default function Maps() {
   };
 
   return (
-    <section>
+    <section className="ref-page">
       <h1>Карты локаций</h1>
+      <p className="lead">Выходы, точки квестов и боссы. Перед рейдом найдите свои выходы — цвет точки показывает, кому они доступны.</p>
       <State loading={loading} error={error} />
       {map && (
         <>
-          <div className="chips">
+          <div className="chips" role="group" aria-label="Выбор карты">
             {maps.map((m: any) => <button key={m.id} className={m.id === map.id ? 'chip on' : 'chip'} onClick={() => pick(m.normalizedName)}>{m.name}</button>)}
           </div>
           <div className="map-layout">
@@ -124,16 +127,27 @@ export default function Maps() {
                   </div>
                 ) : null;
               })()}
-              <div className="legend">
+              <div className="legend ref-map-legend">
                 {(['pmc', 'scav', 'shared'] as const).map((f) => (
-                  <label key={f}><input type="checkbox" checked={show[f]} onChange={(e) => setShow({ ...show, [f]: e.target.checked })} />
+                  <label key={f} title={FACTION[f].hint}><input type="checkbox" checked={show[f]} onChange={(e) => setShow({ ...show, [f]: e.target.checked })} />
                     <i style={{ background: FACTION[f].color }} /> Выходы: {FACTION[f].label}</label>
                 ))}
-                <label><input type="checkbox" checked={show.spawns} onChange={(e) => setShow({ ...show, spawns: e.target.checked })} /><i style={{ background: '#888' }} /> Точки спавна</label>
-                <label><input type="checkbox" checked={show.quests} onChange={(e) => setShow({ ...show, quests: e.target.checked })} /><i className="q-pin" /> Квесты ({mapQuests.length})</label>
-                <label><i className="me" /> Вы</label>
-                {marks.length > 0 && <label><i className="tm-mark" /> <a className="link" href="#/terminal">Переход на Терминал</a></label>}
+                <label title="Где появляются игроки в начале рейда"><input type="checkbox" checked={show.spawns} onChange={(e) => setShow({ ...show, spawns: e.target.checked })} /><i style={{ background: '#888' }} /> Точки появления</label>
+                <label title="Точки заданий: что найти, отметить или заложить"><input type="checkbox" checked={show.quests} onChange={(e) => setShow({ ...show, quests: e.target.checked })} /><i className="q-pin" /> Квесты ({mapQuests.length})</label>
+                {(desktop || track.length > 0) && <label title="Последняя отмеченная позиция"><i className="me" /> Ваша позиция</label>}
+                {marks.length > 0 && <label title="Зона, откуда можно перейти на карту «Терминал»"><i className="tm-mark" /> <a className="link" href="#/terminal">Переход на Терминал</a></label>}
               </div>
+              <details className="ref-legend ref-map-help">
+                <summary>Как читать карту</summary>
+                <ul>
+                  {(['pmc', 'scav', 'shared'] as const).map((f) => (
+                    <li key={f}><i className="ref-dot" style={{ background: FACTION[f].color }} /><b>Выходы: {FACTION[f].label}</b> — {FACTION[f].hint[0].toLowerCase() + FACTION[f].hint.slice(1)}.</li>
+                  ))}
+                  <li>Условия выходов (оплата, рубильник, без рюкзака) — на <a className="ref-boss-link" href={`https://tarkov.dev/map/${encodeURIComponent(map.normalizedName)}`} target="_blank" rel="noreferrer">подробной карте tarkov.dev ↗</a>.</li>
+                  <li><i className="q-pin" /> Булавки — точки квестов. Нажмите на булавку, чтобы увидеть, что там нужно сделать.</li>
+                  <li>Если у карты есть этажи и подвалы — они переключаются списком в левом верхнем углу.</li>
+                </ul>
+              </details>
             </div>
             <div className="side">
               {show.quests && qd.data && (
@@ -148,8 +162,12 @@ export default function Maps() {
                 {map.bosses?.length > 0 && (
                   <>
                     <h4>Боссы</h4>
+                    <div className="muted small">Процент — шанс, что босс будет в рейде.</div>
                     {dedupe(map.bosses).map((b: any) => (
-                      <div key={b.name} className="kv"><span>{b.name}</span><b>{Math.round(b.chance * 100)}%</b></div>
+                      <div key={b.name} className="kv">
+                        {b.slug && bossPages.has(b.slug) ? <a className="ref-boss-link" href={`#/bosses/${encodeURIComponent(b.slug)}`}>{b.name}</a> : <span>{b.name}</span>}
+                        <b>{Math.round(b.chance * 100)}%</b>
+                      </div>
                     ))}
                   </>
                 )}
@@ -157,27 +175,6 @@ export default function Maps() {
                   <a className="link" href={`https://tarkov.dev/map/${encodeURIComponent(map.normalizedName)}`} target="_blank" rel="noreferrer">Подробная интерактивная карта ↗</a>
                   {safeUrl(map.wiki) && <a className="link" href={safeUrl(map.wiki)} target="_blank" rel="noreferrer">Wiki ↗</a>}
                 </div>
-              </div>
-
-              <div className="card">
-                <h3>Где я? {desktop ? <span className="badge ok">связь с игрой</span> : null}</h3>
-                {desktop ? (
-                  <p className="small">Сделайте скриншот в игре (клавиша <kbd>PrtSc</kbd>) — точка появится на карте автоматически. Карта переключается сама при загрузке рейда, если указана папка игры в настройках.</p>
-                ) : (
-                  <p className="small">В версии для ПК позиция определяется автоматически по скриншотам. Здесь можно вставить имя файла скриншота из папки «Документы\Escape from Tarkov\Screenshots».</p>
-                )}
-                <div className="toolbar">
-                  <input className="search" value={manual} onChange={(e) => setManual(e.target.value)} placeholder="2025-01-08[20-17]_-198.7, 2.5, -73.9_…png" onKeyDown={(e) => e.key === 'Enter' && addManual()} />
-                  <button className="btn" onClick={addManual}>Отметить</button>
-                </div>
-                {hint && <div className="muted small">{hint}</div>}
-                {track.length > 0 && (
-                  <div className="small">
-                    Последняя точка: x {track[track.length - 1].x.toFixed(1)}, z {track[track.length - 1].z.toFixed(1)}, высота {track[track.length - 1].y.toFixed(1)}
-                    <button className="btn ghost small" onClick={() => setTrack([])}>Очистить</button>
-                  </div>
-                )}
-                {desktop && <DesktopSettings />}
               </div>
 
               {map.extracts?.length > 0 && (
@@ -188,13 +185,34 @@ export default function Maps() {
                     if (!list.length) return null;
                     return (
                       <div key={f}>
-                        <h4 style={{ color: FACTION[f].color }}>{FACTION[f].label}</h4>
+                        <h4 style={{ color: FACTION[f].color }}>{FACTION[f].label} ({list.length})</h4>
+                        <div className="muted small">{FACTION[f].hint}.</div>
                         <ul className="plain">{list.map((e: any, i: number) => <li key={i}>{e.name}</li>)}</ul>
                       </div>
                     );
                   })}
                 </div>
               )}
+
+              <WhereAmI open={!!desktop || track.length > 0}>
+                {desktop ? (
+                  <p className="small">Сделайте скриншот в игре (клавиша <kbd>PrtSc</kbd>) — точка появится на карте автоматически. Карта переключается сама при загрузке рейда, если указана папка игры в настройках.</p>
+                ) : (
+                  <p className="small">В версии для ПК позиция определяется сама по скриншотам. Здесь можно вставить имя файла скриншота из папки «Документы\Escape from Tarkov\Screenshots» — в нём записаны координаты.</p>
+                )}
+                <div className="toolbar">
+                  <input className="search" value={manual} onChange={(e) => setManual(e.target.value)} placeholder="2025-01-08[20-17]_-198.7, 2.5, -73.9_…png" aria-label="Имя файла скриншота или координаты" onKeyDown={(e) => e.key === 'Enter' && addManual()} />
+                  <button className="btn" onClick={addManual}>Отметить</button>
+                </div>
+                {hint && <div className="muted small">{hint}</div>}
+                {track.length > 0 && (
+                  <div className="small">
+                    Последняя точка: x {track[track.length - 1].x.toFixed(1)}, z {track[track.length - 1].z.toFixed(1)}, высота {track[track.length - 1].y.toFixed(1)}
+                    <button className="btn ghost small" onClick={() => setTrack([])}>Очистить</button>
+                  </div>
+                )}
+                {desktop && <DesktopSettings />}
+              </WhereAmI>
             </div>
           </div>
         </>
@@ -204,9 +222,28 @@ export default function Maps() {
 }
 
 function dedupe(bosses: any[]) {
-  const m = new Map<string, number>();
-  for (const b of bosses) { const n = b.name; if (n) m.set(n, Math.max(m.get(n) || 0, b.spawnChance || 0)); }
-  return [...m].map(([name, chance]) => ({ name, chance })).sort((a, b) => b.chance - a.chance);
+  const m = new Map<string, { chance: number; slug?: string }>();
+  for (const b of bosses) {
+    const n = b.name; if (!n) continue;
+    const prev = m.get(n);
+    m.set(n, { chance: Math.max(prev?.chance || 0, b.spawnChance || 0), slug: prev?.slug || b.normalizedName });
+  }
+  return [...m].map(([name, v]) => ({ name, ...v })).sort((a, b) => b.chance - a.chance);
+}
+
+/** «Где я?»: в ПК-версии — открытая карточка; на сайте и телефоне — свёрнута, это нужно редко */
+function WhereAmI({ open, children }: { open: boolean; children: React.ReactNode }) {
+  // open — только чтобы раскрыть карточку, когда появилась точка; сворачивает её лишь сам пользователь
+  // (при смене карты точки сбрасываются, но карточка с подсказкой остаётся открытой)
+  const [isOpen, setIsOpen] = useState(open);
+  useEffect(() => { if (open) setIsOpen(true); }, [open]);
+  if (desktop) return <div className="card"><h3>Где я? <span className="badge ok">связь с игрой</span></h3>{children}</div>;
+  return (
+    <details className="card ref-whereami" open={isOpen} onToggle={(e) => setIsOpen((e.currentTarget as HTMLDetailsElement).open)}>
+      <summary><b>Где я на карте?</b> <span className="muted small">по скриншоту из игры</span></summary>
+      {children}
+    </details>
+  );
 }
 
 function MapCanvas({ map, track, show, quests = [], selected, onSelect }: { map: any; track: Pos[]; show: Record<string, boolean>; quests?: QuestPin[]; selected?: string | null; onSelect?: (id: string | null) => void }) {

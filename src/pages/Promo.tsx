@@ -85,13 +85,18 @@ export default function Promo() {
   const [mode, setMode] = useState<'' | Code['mode']>('');
   const [hideUsed, setHideUsed] = useState(false);
   const [copied, setCopied] = useState('');
+  // «Как активировать» раскрыта только при первом заходе — дальше не занимает первый экран
+  const [howtoOpen] = useState(() => { try { return !localStorage.getItem('promoHowtoSeen'); } catch { return true; } });
+  useEffect(() => { try { localStorage.setItem('promoHowtoSeen', '1'); } catch { /* ignore */ } }, []);
 
-  const codes = useMemo(() => data.codes
+  // Рабочие коды выбранного режима — без учёта «Скрыть активированные»
+  const forMode = useMemo(() => data.codes
     .filter((c) => c.status !== 'expired')
-    .filter((c) => !mode || c.mode === mode || c.mode === 'unknown')
+    .filter((c) => !mode || c.mode === mode || c.mode === 'unknown'), [data, mode]);
+  const codes = useMemo(() => forMode
     .filter((c) => !hideUsed || !used[c.code])
     .sort((a, b) => (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1) || (b.added || '').localeCompare(a.added || '')),
-  [data, mode, hideUsed, used]);
+  [forMode, hideUsed, used]);
   const expired = data.codes.filter((c) => c.status === 'expired');
 
   const copy = async (code: string) => {
@@ -105,21 +110,22 @@ export default function Promo() {
   };
 
   return (
-    <section>
+    <section className="ref-page">
       <h1>Промокоды</h1>
       <p className="lead">
         Бесплатное снаряжение от Battlestate Games. Обновлено {dateRu(data.updated)}{live ? '' : ' (без сети показана сохранённая копия)'}.
       </p>
 
-      <details className="card howto">
+      <details className="card howto" open={howtoOpen}>
         <summary><b>Как активировать</b></summary>
         <ol>
+          <li>Нажмите «Копировать» у нужного кода.</li>
           <li>Откройте лаунчер Battlestate Games (или Steam-версию).</li>
           <li>Справа вверху нажмите на своё имя или статус «Online» — откроется меню.</li>
           <li>Выберите «Активировать промокод» и вставьте код. Регистр букв важен.</li>
-          <li>Предметы придут в игре в том режиме, который указан у кода (PvE, PvP-сезон или обычный PvP).</li>
+          <li>Предметы придут в игре в том режиме, который указан у кода (PvE, PvP-сезон или обычный PvP). Ищите их во внутриигровых сообщениях.</li>
         </ol>
-        <p className="muted small">Код можно активировать на сайте escapefromtarkov.com в личном кабинете — результат тот же.</p>
+        <p className="muted small">Код можно активировать на сайте escapefromtarkov.com в личном кабинете — результат тот же. «Проверьте» — код мог закончиться: просто попробуйте.</p>
       </details>
 
       <div className="chips">
@@ -129,6 +135,13 @@ export default function Promo() {
         <button className={hideUsed ? 'chip on' : 'chip'} onClick={() => setHideUsed(!hideUsed)}>Скрыть активированные</button>
       </div>
 
+      {codes.length === 0 && (
+        <div className="ref-empty">
+          <b>{hideUsed && forMode.length > 0 ? 'Все коды здесь вы уже активировали' : 'Рабочих кодов для этого режима сейчас нет'}</b>
+          <div className="muted small">Новые коды обычно выходят к ивентам и патчам — загляните позже.</div>
+          <button className="btn ghost small" onClick={() => { setMode(''); setHideUsed(false); }}>Показать все коды</button>
+        </div>
+      )}
       <div className="cards">
         {codes.map((c) => (
           <div key={c.code} className={`card promo ${used[c.code] ? 'used' : ''}`}>

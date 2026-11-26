@@ -251,20 +251,20 @@ export default function MapView({ map, track, show, quests = [], selected, onSel
       {!url && !failed && <div className="map-loading small"><span className="spinner" /> Загружаю карту…</div>}
       {failed && <div className="map-loading small">Не удалось загрузить карту местности — показаны только точки.</div>}
       <div className="map-tools">
-        <button className="btn ghost small" onClick={() => zoomAt(1 / 1.5)} aria-label="Приблизить">＋</button>
-        <button className="btn ghost small" onClick={() => zoomAt(1.5)} aria-label="Отдалить">－</button>
-        <button className="btn ghost small" onClick={() => setVb(full)} aria-label="Вся карта">⤢</button>
+        <button className="btn ghost small" onClick={() => zoomAt(1 / 1.5)} aria-label="Приблизить" title="Приблизить">＋</button>
+        <button className="btn ghost small" onClick={() => zoomAt(1.5)} aria-label="Отдалить" title="Отдалить">－</button>
+        <button className="btn ghost small" onClick={() => setVb(full)} aria-label="Показать всю карту" title="Показать всю карту">⤢</button>
       </div>
       {cfg?.floors && (
         <div className="map-floors">
-          <select value={floor} onChange={(e) => setFloor(e.target.value)} aria-label="Этаж">
+          <select value={floor} onChange={(e) => setFloor(e.target.value)} aria-label="Этаж" title="Этаж: подвалы и верхние этажи зданий">
             <option value="">Уровень земли</option>
             {cfg.floors.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
         </div>
       )}
       <div className="muted small">
-        Колёсико или два пальца — масштаб, перетаскивание — сдвиг. Карта: Shebuka / tarkov.dev, лицензия CC BY-NC-SA 4.0.
+        Масштаб — колёсико мыши, два пальца или кнопки ＋/－; двигать — перетаскиванием. Карта: Shebuka / tarkov.dev, лицензия CC BY-NC-SA 4.0.
       </div>
     </div>
   );

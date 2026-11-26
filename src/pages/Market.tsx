@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useData, State, Search, norm, Img } from '../ui';
 import { rub, num, loadItems } from '../api';
 import ItemModal, { traderSellOffers } from '../components/ItemModal';
+import RefEmpty from '../components/RefEmpty';
 
 
 const CATS: [string, string][] = [
@@ -45,45 +46,66 @@ export default function Market() {
     return r.sort(by[sort]);
   }, [data, q, cat, sort]);
 
+  const reset = () => { setQ(''); setCat(''); setLimit(60); };
+
   return (
-    <section>
+    <section className="ref-page">
       <h1>Барахолка и цены</h1>
-      <p className="lead">Средняя цена за 24 часа, лучший торговец для продажи и цена за клетку — чтобы понимать, что тащить из рейда.</p>
+      <p className="lead">Сколько стоит лут и кому его выгоднее продать. Нажмите на предмет — откроются все цены.</p>
       <div className="toolbar">
         <Search value={q} onChange={(v) => { setQ(v); setLimit(60); }} placeholder="Например: Слоны, GPU, LEDX, ключ…" />
-        <select value={sort} onChange={(e) => setSort(e.target.value)}>
+        <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Сортировка" title="Сортировка">
           {SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
       </div>
       <div className="chips">
         {CATS.map(([v, l]) => <button key={v} className={cat === v ? 'chip on' : 'chip'} onClick={() => { setCat(v); setLimit(60); }}>{l}</button>)}
       </div>
+      <details className="ref-legend">
+        <summary>Что значат цены</summary>
+        <ul>
+          <li><b className="accent">Крупная цена</b> — средняя на барахолке за последние 24 часа. ▲▼ — как она изменилась за 48 часов.</li>
+          <li><b>Ниже</b> — сколько даст лучший торговец. <span className="ref-better">Зелёным</span> — когда торговцу продать не дешевле, чем на барахолке (и без комиссии).</li>
+          <li><b>За клетку</b> — цена, делённая на размер предмета. Чем выше, тем выгоднее занимать им место в рюкзаке.</li>
+          <li>«Нельзя на барахолке» — такой предмет можно продать только торговцу.</li>
+          <li>В списке торговец сравнивается со средней ценой за 24 ч, а в окне предмета — с самым дешёвым лотом сейчас, поэтому вывод «где выгоднее» иногда отличается.</li>
+        </ul>
+      </details>
       <State loading={loading} error={error} />
-      {data && <div className="muted small">Найдено: {rows.length}</div>}
+      {data && rows.length > 0 && <div className="muted small">Найдено: {rows.length}</div>}
+      {data && rows.length === 0 && (
+        <RefEmpty text={q ? `По запросу «${q}» ничего нет` : 'В этой категории ничего нет'}
+          hint="Попробуйте часть названия или короткое имя (GPU, LEDX, «Слоны») и категорию «Все»." onReset={reset} />
+      )}
       <div className="list">
-        {rows.slice(0, limit).map((it: any) => (
-          <div key={it.id} className="row card" onClick={() => setOpen(it)}>
-            <div className="row-main">
-              <Img src={it.iconLink} alt={it.shortName} />
-              <div className="grow">
-                <div className="title">{it.name}</div>
-                <div className="muted small">
-                  {it.types?.includes('noFlea') ? 'Нельзя продать на барахолке · ' : ''}
-                  {it.slots} кл. · за клетку {rub(it.perSlot)}
+        {rows.slice(0, limit).map((it: any) => {
+          const noFlea = it.types?.includes('noFlea');
+          const traderBetter = !!it.best && it.best.priceRUB >= it.flea;
+          return (
+            <div key={it.id} className="row card" onClick={() => setOpen(it)}>
+              <div className="row-main">
+                <Img src={it.iconLink} alt={it.shortName} />
+                <div className="grow">
+                  <div className="title">{it.name}</div>
+                  <div className="muted small">{it.slots} кл. · за клетку <b className="ref-num">{rub(it.perSlot)}</b></div>
+                </div>
+                <div className="prices">
+                  {it.flea > 0
+                    ? <div className="price" title="Средняя цена на барахолке за 24 часа">{rub(it.flea)}</div>
+                    : <div className="small ref-noflea">{noFlea ? 'нельзя на барахолке' : 'нет цены барахолки'}</div>}
+                  {it.changeLast48hPercent != null && it.changeLast48hPercent !== 0 && (
+                    <div className={it.changeLast48hPercent > 0 ? 'up small' : 'down small'} title="Изменение цены за 48 часов">
+                      {it.changeLast48hPercent > 0 ? '▲' : '▼'} {num(Math.abs(it.changeLast48hPercent), 1)}%
+                    </div>
+                  )}
+                  <div className={`small ${traderBetter ? 'ref-better' : 'muted'}`} title="Лучшая цена продажи торговцу">
+                    {it.best ? `${it.best.vendor.name}: ${rub(it.best.priceRUB)}` : 'торговцы не берут'}
+                  </div>
                 </div>
               </div>
-              <div className="prices">
-                <div className="price">{rub(it.flea)}</div>
-                {it.changeLast48hPercent != null && it.changeLast48hPercent !== 0 && (
-                  <div className={it.changeLast48hPercent > 0 ? 'up small' : 'down small'}>
-                    {it.changeLast48hPercent > 0 ? '▲' : '▼'} {num(Math.abs(it.changeLast48hPercent), 1)}%
-                  </div>
-                )}
-                <div className="muted small">{it.best ? `${it.best.vendor.name}: ${rub(it.best.priceRUB)}` : 'торговцы не берут'}</div>
-              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       {rows.length > limit && <button className="more" onClick={() => setLimit(limit + 60)}>Показать ещё</button>}
       {open && <ItemModal item={open} allItems={data?.items} onClose={() => setOpen(null)} onOpen={setOpen} />}
