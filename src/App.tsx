@@ -10,10 +10,8 @@ import Guides from './pages/Guides';
 import Promo from './pages/Promo';
 import Overview from './pages/Overview';
 import Hideout from './pages/Hideout';
-    feat/terminal
 import Terminal from './pages/Terminal';
 import ErrorBoundary from './components/ErrorBoundary';
-    main
 import { useAuth, signIn, signOut } from './auth';
 import { THEMES, getTheme, setTheme, ThemeId } from './theme';
 
