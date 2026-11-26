@@ -1,21 +1,29 @@
-# Security Policy
+# Безопасность
 
-## Supported Versions
+## Какие версии поддерживаются
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+Исправления выходят только в последней версии:
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+- сайт на GitHub Pages обновляется сразу после слияния в `main`;
+- приложения для ПК (EXE/DMG) и Android (APK) исправляются в последнем релизе из раздела [Releases](https://github.com/Khan01M/TarkovHub/releases).
 
-## Reporting a Vulnerability
+Старые релизы не обновляются, поэтому установите последний.
 
-Use this section to tell people how to report a vulnerability.
+## Как сообщить об уязвимости
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+Не создавайте обычный issue: его видят все. Сообщите закрыто:
+
+1. Откройте вкладку **Security** этого репозитория.
+2. Нажмите **Report a vulnerability**.
+3. Опишите проблему: что не так, как это повторить, на какой версии (сайт, EXE или APK) и что может сделать злоумышленник.
+
+Отчёт увидят только мейнтейнеры репозитория. Отвечаем в течение нескольких дней. Если уязвимость подтвердится, исправим её и напишем в отчёте, в какой версии она закрыта.
+
+## Что относится к безопасности
+
+- вход через Discord и доступ к аккаунтам и прогрессу (Supabase);
+- возможность прочитать или изменить чужие отметки и прогресс;
+- выполнение чужого кода на сайте или в приложениях (XSS, обход CSP, Electron);
+- утечка ключей и личных данных из репозитория или сборок.
+
+Данные об игре берутся из открытого API tarkov.dev. Ошибки в этих данных, например неверные цены или квесты, уязвимостями не считаются. О них пишите в обычный issue.
