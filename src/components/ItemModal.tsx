@@ -63,8 +63,15 @@ export default function ItemModal({ item, allItems, onClose, onOpen }: { item: I
   }, [onClose]);
 
   const g = item.gun, a = item.ammo;
-  const buy = buyOffers(item).sort((x, y) => x.priceRUB - y.priceRUB);
-  const sell = [...item.sellFor].sort((x, y) => y.priceRUB - x.priceRUB);
+  // Барахолку подписываем сами: в данных её имя может прийти сырым ключом (FleaMarket)
+  const buy = (item.buyFor || []).map((o, i) => (isFleaBuy(item, o, i) ? { ...o, priceRUB: fleaBuyPrice(item), flea: true } : { ...o, flea: false }))
+    .sort((x, y) => x.priceRUB - y.priceRUB);
+  const sell = (item.sellFor || []).map((o, i) => ({ ...o, flea: isFleaSell(item, o, i) }))
+    .sort((x, y) => y.priceRUB - x.priceRUB);
+  const vendor = (o: { flea: boolean; vendor: { name: string } }) => (o.flea ? 'Барахолка' : o.vendor.name);
+  const fleaSell = sell.find((o) => o.flea);
+  const bestTrader = sell.find((o) => !o.flea);
+  const noFlea = item.types.includes('noFlea');
   // Для оружия — патроны этого калибра, лучшие по пробитию
   const ammo = useMemo(() => (g && allItems ? allItems.filter((x) => x.ammo?.caliber === g.caliber).sort((x, y) => y.ammo!.penetrationPower - x.ammo!.penetrationPower).slice(0, 8) : []), [g, allItems]);
 
@@ -79,40 +86,63 @@ export default function ItemModal({ item, allItems, onClose, onOpen }: { item: I
             {g && <span className="tag">{caliberName(g.caliber)}</span>}
             {a && <span className="tag">{caliberName(a.caliber)}</span>}
             {!g && <span className="tag">{item.width}×{item.height} кл.</span>}
-            {item.types.includes('noFlea') && <span className="badge bad">нельзя на барахолку</span>}
+            {noFlea && <span className="badge bad">нельзя на барахолку</span>}
           </div>
 
-          {g && (
-            <div className="im-stats">
-              <div className="stat"><b>{num(g.recoilVertical)}</b><span>Отдача верт.</span></div>
-              <div className="stat"><b>{num(g.recoilHorizontal)}</b><span>Отдача гор.</span></div>
-              <div className="stat"><b>{num(g.ergonomics)}</b><span>Эргономика</span></div>
-              <div className="stat"><b>{num(g.fireRate)}</b><span>Выстр./мин</span></div>
+          {(fleaSell || bestTrader) && (
+            <div className="ref-im-sum">
+              {fleaSell && <div className="kv"><span>На барахолке сейчас</span><b className="accent">{rub(fleaSell.priceRUB)}</b></div>}
+              {bestTrader && <div className="kv"><span>Лучший торговец: {bestTrader.vendor.name}</span><b>{rub(bestTrader.priceRUB)}</b></div>}
+              <div className="small ref-verdict">
+                {!fleaSell ? (noFlea ? 'Продать можно только торговцу.'
+                  : item.avg24hPrice ? `Нет текущих лотов на барахолке — ориентир: средняя за 24 ч ${rub(item.avg24hPrice)}.`
+                  : 'Цены барахолки нет — продавайте торговцу.')
+                  : !bestTrader ? 'Торговцы не берут — только барахолка.'
+                  : bestTrader.priceRUB >= fleaSell.priceRUB ? 'Выгоднее торговцу: не дешевле барахолки и без комиссии.'
+                  : `Выгоднее на барахолке: примерно на ${rub(fleaSell.priceRUB - bestTrader.priceRUB)} больше (до вычета комиссии).`}
+              </div>
             </div>
+          )}
+
+          {g && (
+            <>
+              <div className="im-stats">
+                <div className="stat" title="Меньше — лучше"><b>{num(g.recoilVertical)}</b><span>Отдача верт.</span></div>
+                <div className="stat" title="Меньше — лучше"><b>{num(g.recoilHorizontal)}</b><span>Отдача гор.</span></div>
+                <div className="stat" title="Больше — лучше"><b>{num(g.ergonomics)}</b><span>Эргономика</span></div>
+                <div className="stat"><b>{num(g.fireRate)}</b><span>Выстр./мин</span></div>
+              </div>
+              <div className="muted small">Отдача: меньше — легче попасть очередью. Эргономика: больше — быстрее целиться. Цифры для базовой сборки.</div>
+            </>
           )}
           {g?.defaultAmmo && <div className="muted small">Патрон по умолчанию: {g.defaultAmmo}</div>}
           {a && (
-            <div className="im-stats">
-              <div className="stat"><b>{a.projectileCount > 1 ? `${a.damage}×${a.projectileCount}` : a.damage}</b><span>Урон</span></div>
-              <div className="stat"><b><span className={`pen pen${penClass(a.penetrationPower)}`}>{a.penetrationPower}</span></b><span>Пробитие</span></div>
-              <div className="stat"><b>{a.armorDamage}%</b><span>Урон броне</span></div>
-              <div className="stat"><b>{a.initialSpeed}</b><span>Скорость, м/с</span></div>
-            </div>
+            <>
+              <div className="im-stats">
+                <div className="stat"><b>{a.projectileCount > 1 ? `${a.damage}×${a.projectileCount}` : a.damage}</b><span>Урон</span></div>
+                <div className="stat"><b><span className={`pen pen${penClass(a.penetrationPower)}`}>{a.penetrationPower}</span></b><span>Пробитие</span></div>
+                <div className="stat"><b>{a.armorDamage}%</b><span>Урон броне</span></div>
+                <div className="stat"><b>{a.initialSpeed}</b><span>Скорость, м/с</span></div>
+              </div>
+              <div className="muted small">
+                {penClass(a.penetrationPower) ? `С хорошим шансом пробивает броню до ${penClass(a.penetrationPower)} класса; чем больше запас пробития, тем надёжнее.` : 'Против брони слабый — для целей без бронежилета.'}
+              </div>
+            </>
           )}
 
           <div className="im-prices">
             <div>
               <h4>Купить</h4>
-              {buy.length ? buy.map((o, i) => <div key={i} className="kv"><span>{o.vendor.name}</span><b>{rub(o.priceRUB)}</b></div>) : <div className="muted small">Нигде не продаётся</div>}
+              {buy.length ? buy.map((o, i) => <div key={i} className="kv"><span>{vendor(o)}</span><b>{rub(o.priceRUB)}</b></div>) : <div className="muted small">Нигде не продаётся — только найти в рейде</div>}
             </div>
             <div>
               <h4>Продать</h4>
-              {sell.length ? sell.slice(0, 6).map((o, i) => <div key={i} className="kv"><span>{o.vendor.name}</span><b>{rub(o.priceRUB)}</b></div>) : <div className="muted small">Торговцы не берут</div>}
+              {sell.length ? sell.slice(0, 6).map((o, i) => <div key={i} className="kv"><span>{vendor(o)}</span><b>{rub(o.priceRUB)}</b></div>) : <div className="muted small">Торговцы не берут</div>}
             </div>
           </div>
           {item.avg24hPrice ? (
             <div className="muted small">
-              Барахолка: средняя за 24 ч {rub(item.avg24hPrice)}{item.low24hPrice ? ` · минимум ${rub(item.low24hPrice)}` : ''}
+              Барахолка: «сейчас» — самый дешёвый лот; средняя за 24 ч {rub(item.avg24hPrice)}{item.low24hPrice ? ` · минимум ${rub(item.low24hPrice)}` : ''}
               {item.changeLast48hPercent ? ` · за 48 ч ${item.changeLast48hPercent > 0 ? '+' : ''}${num(item.changeLast48hPercent, 1)}%` : ''}
             </div>
           ) : null}

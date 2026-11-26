@@ -673,3 +673,51 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 14px; }
   .pg-toc .chip, .pg-wrap .chip { padding: 8px 14px; }
   .pg-where select { min-height: 44px; font-size: 16px; }
 }
+
+/* ===== ux-reference ===== */
+/* Справочники: барахолка, оружие, боссы, карты, гайды, промокоды, окно предмета */
+.ref-legend { margin: 0 0 12px; font-size: 13px; }
+.ref-legend summary { display: inline-block; color: var(--accent); margin: 0; padding: 4px 0; }
+.ref-legend ul { margin: 6px 0 0; padding: 10px 14px 10px 30px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); color: var(--muted); }
+.ref-legend li { margin: 3px 0; }
+.ref-legend b { color: var(--text); }
+.ref-legend b.accent { color: var(--accent); }
+.ref-legend i.q-pin { width: 10px; height: 14px; display: inline-block; background: #ff8a3d; margin-right: 6px; vertical-align: -2px;
+  clip-path: path('M5 14 C4 10 0 8 0 5 A5 5 0 1 1 10 5 C10 8 6 10 5 14 Z'); }
+.ref-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+.ref-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 18px 16px; margin: 8px 0 12px;
+  background: var(--panel); border: 1px dashed var(--line); border-radius: var(--radius); }
+.ref-empty .btn.small { margin: 4px 0 0; }
+.ref-num { color: var(--text); font-weight: 600; }
+.ref-better { color: var(--ok); }
+.ref-noflea { color: var(--muted); white-space: nowrap; }
+.ref-cap { display: block; font-size: 11px; font-weight: 400; color: var(--muted); text-align: right; }
+.ref-pen-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -4px 0 12px; }
+.ref-pen-legend .pen { min-width: 26px; }
+.ref-im-sum { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+.ref-im-sum .kv span { color: var(--muted); }
+.ref-verdict { margin-top: 4px; color: var(--text); }
+.ref-boss-tip { margin: 0 0 12px; font-size: 14px; }
+.ref-boss-link { color: var(--text); text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
+.ref-boss-link:hover { color: var(--accent); }
+.ref-whereami summary { color: var(--text); font-size: 15px; margin: 0; }
+.ref-whereami[open] summary { margin-bottom: 8px; }
+.ref-map-help { margin: 8px 0 0; }
+.guide-card .badge + .muted { vertical-align: middle; }
+@media (max-width: 640px) {
+  /* Касание на телефоне: кнопки и чипы не меньше ~40 px */
+  .ref-page .chip { min-height: 38px; padding: 8px 14px; }
+  .ref-page select, .ref-page .search { min-height: 42px; }
+  .ref-page .map-tools .btn.small { min-width: 42px; min-height: 42px; }
+  .ref-page .map-floors select { min-height: 42px; }
+  .ref-page .ref-map-legend label { min-height: 32px; }
+  .ref-page .ref-map-legend input[type=checkbox] { width: 18px; height: 18px; }
+  .ref-page .used-check { min-height: 36px; }
+  .ref-page .used-check input { width: 18px; height: 18px; }
+  .ref-legend summary { padding: 8px 0; }
+  /* В списке боссов схема здоровья занимает пол-экрана — она есть на странице босса */
+  .ref-boss-list .bodymap { display: none; }
+  /* Окно предмета: картинка поменьше, чтобы цены были видны сразу */
+  .im-hero { min-height: 0; padding: 8px; }
+  .im-img { max-height: 26vh; }
+}

@@ -3,6 +3,7 @@ import BodyMap from '../components/BodyMap';
 import { PARTS, PART_RU, PMC, PMC_TOTAL, hpOf, ratio, colorFor, total } from '../health';
 import { useData, State, Search, norm, Img } from '../ui';
 import { num, rub, loadMaps, loadItems } from '../api';
+import RefEmpty from '../components/RefEmpty';
 
 // three.js тяжёлый — грузим его только на странице босса
 const Boss3D = lazy(() => import('../components/Boss3D'));
@@ -154,22 +155,30 @@ function BossList({ bosses, error, loading }: { bosses: any[]; error: string | n
   const nq = norm(q);
   const list = bosses.filter((b: any) => !nq || norm(b.name).includes(nq) || b.spawns.some((s: any) => norm(s.map).includes(nq)));
   return (
-    <section>
+    <section className="ref-page">
       <h1>Боссы</h1>
-      <p className="lead">Нажмите на босса, чтобы открыть его страницу: 3D-модель со снаряжением, здоровье по частям тела, оружие, лут и тактика боя.</p>
+      <p className="lead">Где появляются, с какой охраной и как с ними справиться. Нажмите на босса — откроется страница с тактикой, снаряжением и лутом.</p>
+      <div className="tip ref-boss-tip">
+        <b>Новичку:</b> босс крепче обычного бойца и почти всегда ходит с охраной. Процент у карты — шанс, что босс будет в рейде.
+        Услышали стрельбу в его районе — лучше обойти и не идти туда в одиночку.
+      </div>
       <div className="toolbar"><Search value={q} onChange={setQ} placeholder="Имя босса или карта…" /></div>
       <State loading={loading} error={error} />
-      <div className="cards">
+      {!loading && !error && bosses.length > 0 && list.length === 0 && (
+        <RefEmpty text={`По запросу «${q}» боссов нет`} hint="Ищите по имени (Решала, Килла) или по карте (Таможня, Развязка)." onReset={() => setQ('')} />
+      )}
+      <div className="cards ref-boss-list">
         {list.map((b: any) => {
           const hp = total(b.health || []);
+          const guards = (b.spawns[0]?.escorts || []).reduce((n: number, e: any) => n + (e.count || 0), 0);
           return (
             <a key={b.normalizedName} href={`#/bosses/${encodeURIComponent(b.normalizedName)}`} className="card boss boss-link">
               <div className="row-main">
                 {b.imagePortraitLink ? <img className="portrait" src={b.imagePortraitLink} alt={b.name} loading="lazy" /> : <div className="portrait ph">☠</div>}
                 <div className="grow">
                   <div className="title">{b.name}</div>
-                  {hp > 0 && <div className="muted small">Здоровье: {num(hp)}</div>}
-                  {(b.spawns[0] || missingHome(b)) && <div className="muted small">{[missingHome(b) ? `${missingHome(b)} (обычно)` : '', ...b.spawns.slice(0, 3).map((s: any) => `${s.map} ${Math.round(s.chance * 100)}%`)].filter(Boolean).join(' · ')}</div>}
+                  {(b.spawns[0] || missingHome(b)) && <div className="small" title="Карта и шанс, что босс будет в рейде">{[missingHome(b) ? `${missingHome(b)} (обычно)` : '', ...b.spawns.slice(0, 3).map((s: any) => `${s.map} ${Math.round(s.chance * 100)}%`)].filter(Boolean).join(' · ')}</div>}
+                  <div className="muted small">{[hp > 0 ? `Здоровье: ${num(hp)}` : '', guards > 0 ? `охрана: до ${guards}` : ''].filter(Boolean).join(' · ')}</div>
                 </div>
               </div>
               {b.health?.length > 0 && <BodyMap health={b.health} />}
@@ -292,6 +301,7 @@ function BossPage({ boss: b, maxHp }: { boss: any; maxHp: Record<string, number>
           {b.note && <p className="note">{b.note}</p>}
           {tactics ? <ul className="tactics">{tactics.map((t, i) => <li key={i}>{t}</li>)}</ul> : !b.note && <div className="muted small">Советов пока нет.</div>}
           <h4>Где искать</h4>
+          <div className="muted small">Процент — шанс, что босс будет в рейде на этой карте. «Точки» — где именно он появляется.</div>
           {missingHome(b) && (
             <div className="alert info small">Постоянное место — <b>{missingHome(b)}</b>. Сейчас tarkov.dev его не показывает: скорее всего, идёт ивент и босса временно заменили. Ниже — карты по текущим данным.</div>
           )}

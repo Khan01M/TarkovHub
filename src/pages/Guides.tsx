@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { GUIDES } from '../guides';
 import type { Guide } from '../guides';
 import { Search, norm, safeUrl } from '../ui';
+import RefEmpty from '../components/RefEmpty';
 
-// Актуальное (ивент, сезон) — наверху списка
-const TOP = ['Патчи', 'Сезон', 'Ивент'];
+// Наверху: для новичков, потом актуальное (патч, сезон, ивент)
+const TOP = ['Новичкам', 'Патчи', 'Сезон', 'Ивент'];
 const rank = (t: string) => (TOP.includes(t) ? TOP.indexOf(t) : TOP.length);
 
 // Текст для поиска: только то, что видит читатель (без имён полей и адресов ссылок)
@@ -48,19 +49,22 @@ export default function Guides() {
   );
 
   return (
-    <section>
+    <section className="ref-page">
       <h1>Гайды</h1>
-      <p className="lead">Разборы механик, карт, ивентов и сезона — для новичков и тех, кто вернулся. Всего гайдов: {GUIDES.length}.</p>
+      <p className="lead">Разборы механик, карт, ивентов и сезона. Только начинаете — откройте «Первые рейды». Всего гайдов: {GUIDES.length}.</p>
       <div className="toolbar"><Search value={q} onChange={setQ} placeholder="Ледокол, убежище, Каппа…" /></div>
       <div className="chips">
         <button className={!tag ? 'chip on' : 'chip'} onClick={() => setTag('')}>Все</button>
         {tags.map((t) => <button key={t} className={tag === t ? 'chip on' : 'chip'} onClick={() => setTag(t)}>{t}</button>)}
       </div>
-      {list.length === 0 && <div className="muted">Ничего не найдено.</div>}
+      {list.length === 0 && (
+        <RefEmpty text={q ? `По запросу «${q}» гайдов нет` : 'В этом разделе гайдов нет'}
+          hint="Поиск идёт по тексту гайдов: попробуйте одно слово — «лечение», «броня», «убежище»." onReset={() => { setQ(''); setTag(''); }} />
+      )}
       <div className="cards">
         {list.map((x) => (
           <a key={x.id} href={`#/guides/${x.id}`} className="card guide-card">
-            <span className="badge">{x.tag}</span>
+            <div><span className="badge">{x.tag}</span>{x.updated && <span className="muted small">{x.updated}</span>}</div>
             <div className="title">{x.title}</div>
             <div className="muted small">{x.summary}</div>
           </a>
